@@ -148,6 +148,18 @@ async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
     if not article:
         raise HTTPException(404, "Article not found")
 
+    # Fetch source and author names
+    source_name = None
+    author_name = None
+    if article.source_id:
+        sr = await db.execute(select(Source).where(Source.id == article.source_id))
+        src = sr.scalar_one_or_none()
+        source_name = src.name if src else None
+    if article.author_id:
+        ar = await db.execute(select(Author).where(Author.id == article.author_id))
+        auth = ar.scalar_one_or_none()
+        author_name = auth.name if auth else None
+
     analysis = await db.execute(
         select(AnalysisResult).where(AnalysisResult.article_id == article.id)
     )
@@ -172,6 +184,9 @@ async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
         "section": article.section,
         "word_count": article.word_count,
         "tags": article.tags,
+        "source_name": source_name,
+        "author_id": str(article.author_id) if article.author_id else None,
+        "author_name": author_name,
         "analyses": [
             {
                 "type": a.analysis_type,
