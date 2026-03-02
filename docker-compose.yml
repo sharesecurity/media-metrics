@@ -3,8 +3,9 @@ version: "3.9"
 # Port assignments (chosen to avoid conflicts with other projects on this machine):
 #   mm_postgres  → 5434  (5432=system, 5433=pain-postgres)
 #   mm_qdrant    → 6333/6334 (free)
-#   mm_minio     → 9010 API, 9011 console
+#   mm_minio     → 8900 API, 8901 console
 #   mm_backend   → 8010
+#   mm_flower    → 5555
 #   mm_grafana   → 3001
 
 services:
@@ -46,8 +47,8 @@ services:
       MINIO_ROOT_USER: media_metrics
       MINIO_ROOT_PASSWORD: media_metrics_2024
     ports:
-      - "9010:9000"
-      - "9011:9001"
+      - "8900:9000"
+      - "8901:9001"
     volumes:
       - /Volumes/LabStorage/media_metrics/minio:/data
 
@@ -117,6 +118,17 @@ services:
       - ./backend:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  flower:
+    image: mher/flower:2.0
+    container_name: mm_flower
+    restart: unless-stopped
+    command: celery flower --broker=redis://redis:6379/0 --port=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
 
   grafana:
     image: grafana/grafana:latest

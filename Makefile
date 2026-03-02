@@ -1,5 +1,5 @@
 # Media Metrics — Quick Commands
-# Ports: backend=8010, minio=9010/9011, postgres=5434, qdrant=6333, grafana=3001
+# Ports: backend=8010, minio=8900/8901, postgres=5434, qdrant=6333, grafana=3001
 
 .PHONY: up down logs restart-backend frontend reset status ingest analyze stats reanalyze migrate-minio
 
@@ -63,3 +63,7 @@ migrate-minio:
 ## Open Grafana dashboard (admin / media_metrics_2024)
 grafana:
 	open http://localhost:3001
+
+## Open Celery Flower task monitor
+flower:
+	open http://localhost:5555
