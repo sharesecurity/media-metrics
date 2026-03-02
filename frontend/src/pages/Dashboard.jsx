@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats } from '../utils/api'
-import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity } from 'lucide-react'
+import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest } from '../utils/api'
+import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity, HardDrive } from 'lucide-react'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [ingesting, setIngesting] = useState(false)
   const [scraping, setScraping] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [kaggleIngesting, setKaggleIngesting] = useState(false)
   const [msg, setMsg] = useState('')
 
   const { data: stats, refetch: refetchStats } = useQuery({
@@ -53,6 +54,30 @@ export default function Dashboard() {
     queryFn: getQueueStats,
     refetchInterval: 10000,
   })
+
+  const { data: kaggleStatus } = useQuery({
+    queryKey: ['kaggle-status'],
+    queryFn: getKaggleStatus,
+    staleTime: 30000,
+  })
+
+  const handleKaggleIngest = async (version = 'v1', limit = 1000) => {
+    setKaggleIngesting(true)
+    setMsg(`Starting Kaggle ingest: ${limit.toLocaleString()} articles from All the News ${version.toUpperCase()} dataset...`)
+    try {
+      const res = await startKaggleIngest({ version, limit })
+      if (res.error) {
+        setMsg(`Kaggle: ${res.error}`)
+      } else {
+        setMsg(`Kaggle ingest started! Inserting up to ${limit.toLocaleString()} articles in background. Auto-analysis will queue when done.`)
+        setTimeout(() => refetchStats(), 15000)
+        setTimeout(() => refetchStats(), 60000)
+      }
+    } catch (e) {
+      setMsg('Kaggle ingest failed: ' + e.message)
+    }
+    setKaggleIngesting(false)
+  }
 
   const handleIngest = async () => {
     setIngesting(true)
@@ -257,6 +282,65 @@ export default function Dashboard() {
             {sub && <p className="text-xs text-gray-500 mt-0.5">{sub} analyzed</p>}
           </div>
         ))}
+      </div>
+
+      {/* Kaggle Dataset Panel */}
+      <div className="card border border-gray-700">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <HardDrive size={16} className="text-orange-400" />
+            <h2 className="font-semibold text-white">Bulk Historical Data — Kaggle "All the News"</h2>
+          </div>
+          {kaggleStatus && (
+            <span className={`text-xs px-2 py-0.5 rounded-full ${
+              kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready
+                ? 'bg-green-900/40 text-green-300 border border-green-700'
+                : 'bg-yellow-900/40 text-yellow-300 border border-yellow-700'
+            }`}>
+              {kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready ? 'Data ready' : 'Not downloaded'}
+            </span>
+          )}
+        </div>
+
+        {kaggleStatus?.versions?.v1?.ready || kaggleStatus?.versions?.v2?.ready ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {['v1', 'v2'].map(ver => {
+                const v = kaggleStatus.versions?.[ver]
+                if (!v?.ready) return null
+                return (
+                  <div key={ver} className="bg-gray-800 rounded-lg p-3">
+                    <div className="text-white font-medium">v{ver === 'v1' ? '1' : '2'} — {ver === 'v1' ? '~210K articles (2012–2018)' : '~2.7M articles (2016–2020)'}</div>
+                    <div className="text-gray-400 mt-1">{v.file_count} file{v.file_count !== 1 ? 's' : ''} · {v.size_gb} GB</div>
+                    <div className="flex gap-2 mt-2">
+                      {[1000, 5000, 25000].map(n => (
+                        <button key={n}
+                          onClick={() => handleKaggleIngest(ver, n)}
+                          disabled={kaggleIngesting}
+                          className="px-2 py-1 text-xs bg-orange-700 hover:bg-orange-600 disabled:opacity-50 text-white rounded transition-colors"
+                        >
+                          {kaggleIngesting ? '…' : `+${n >= 1000 ? n/1000+'K' : n}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-gray-500 text-xs">Each button ingests N more articles (with auto-analysis). Call repeatedly to page through the full dataset.</p>
+          </div>
+        ) : (
+          <div className="text-sm text-gray-400 space-y-2">
+            <p>Download the dataset once to unlock bulk historical ingestion (up to 2.7M articles from 25+ outlets).</p>
+            <div className="bg-gray-800 rounded-lg p-3 font-mono text-xs text-gray-300 space-y-1">
+              <div className="text-gray-500"># 1. Add Kaggle API token → ~/.kaggle/kaggle.json</div>
+              <div className="text-gray-500">#    https://www.kaggle.com/settings → API → Create New Token</div>
+              <div>python scripts/download_kaggle_data.py --dataset v1</div>
+              <div className="text-gray-500"># v1: ~210K articles, ~500MB. v2: ~2.7M articles, ~9GB</div>
+            </div>
+            <p className="text-gray-500 text-xs">Data saved to: /Volumes/LabStorage/media_metrics/raw_articles/</p>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-6">

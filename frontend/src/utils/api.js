@@ -45,6 +45,9 @@ export const startIngest = (source = 'rss', limit = 20, sources = null, auto_ana
   api.post('/ingest/start', { source, limit, sources, auto_analyze }).then(r => r.data)
 export const getIngestSources = () => api.get('/ingest/sources').then(r => r.data)
 export const getIngestStatus = () => api.get('/ingest/status').then(r => r.data)
+export const getKaggleStatus = () => api.get('/ingest/kaggle/status').then(r => r.data)
+export const startKaggleIngest = (opts = {}) =>
+  api.post('/ingest/kaggle', { version: 'v1', limit: 1000, auto_analyze: true, ...opts }).then(r => r.data)
 
 // Chat
 export const askChat = (message, context = '') =>

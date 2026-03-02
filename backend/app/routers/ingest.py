@@ -132,3 +132,99 @@ async def list_sources():
         "rss_sources": list(RSS_FEEDS.keys()),
         "total": len(RSS_FEEDS),
     }
+
+
+# ---------------------------------------------------------------------------
+# Kaggle "All the News" ingest
+# ---------------------------------------------------------------------------
+
+class KaggleIngestRequest(BaseModel):
+    version: str = "v1"             # "v1" (210K articles) or "v2" (2.7M articles)
+    limit: int = 1000               # max articles per call
+    offset: int = 0                 # row offset across CSV files
+    publications: Optional[List[str]] = None  # e.g. ["new york times", "fox"]
+    min_content_length: int = 200   # skip articles shorter than this
+    auto_analyze: bool = True       # queue bias analysis after ingest
+
+
+@router.post("/kaggle")
+async def kaggle_ingest(req: KaggleIngestRequest, background_tasks: BackgroundTasks):
+    """
+    Ingest articles from the Kaggle 'All the News' dataset stored on LabStorage.
+
+    Dataset must be downloaded first:
+        python scripts/download_kaggle_data.py --dataset v1
+    Data directory: /Volumes/LabStorage/media_metrics/raw_articles/{v1,v2}/
+
+    Each call processes `limit` articles starting at `offset`.
+    For large datasets, call repeatedly with increasing offsets to page through.
+    """
+    from app.pipelines.kaggle_ingest import _csv_files, DATA_ROOT
+    from pathlib import Path
+
+    # Check data is present before starting background task
+    csv_files = _csv_files(req.version)
+    if not csv_files:
+        return {
+            "error": (
+                f"No CSV files found at {DATA_ROOT / req.version}. "
+                f"Run: python scripts/download_kaggle_data.py --dataset {req.version}"
+            )
+        }
+
+    background_tasks.add_task(
+        _ingest_kaggle_bg,
+        req.version, req.limit, req.offset,
+        req.publications, req.min_content_length, req.auto_analyze,
+    )
+    return {
+        "status": "started",
+        "source": f"kaggle/{req.version}",
+        "limit": req.limit,
+        "offset": req.offset,
+        "publications": req.publications or "all",
+        "auto_analyze": req.auto_analyze,
+        "message": "Ingesting in background. Check backend logs for progress.",
+    }
+
+
+async def _ingest_kaggle_bg(
+    version: str, limit: int, offset: int,
+    publications, min_content_length: int, auto_analyze: bool
+):
+    from app.pipelines.kaggle_ingest import ingest_kaggle_dataset
+    stats = await ingest_kaggle_dataset(
+        version=version,
+        limit=limit,
+        offset=offset,
+        publications=publications,
+        min_content_length=min_content_length,
+    )
+    if auto_analyze and stats.get("inserted", 0) > 0:
+        await _queue_unanalyzed()
+
+
+@router.get("/kaggle/status")
+async def kaggle_status():
+    """Check whether Kaggle data files are present on LabStorage."""
+    from app.pipelines.kaggle_ingest import _csv_files, DATA_ROOT
+    import os
+
+    versions = {}
+    for version in ("v1", "v2"):
+        files = _csv_files(version)
+        size_gb = sum(f.stat().st_size for f in files) / 1e9 if files else 0
+        versions[version] = {
+            "files": [f.name for f in files],
+            "file_count": len(files),
+            "size_gb": round(size_gb, 2),
+            "ready": len(files) > 0,
+        }
+    return {
+        "data_dir": str(DATA_ROOT),
+        "versions": versions,
+        "setup_instructions": (
+            "Download: python scripts/download_kaggle_data.py --dataset v1|v2|both  "
+            "(requires ~/.kaggle/kaggle.json API token)"
+        ),
+    }
