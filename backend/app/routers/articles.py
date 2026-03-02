@@ -33,18 +33,29 @@ async def list_articles(
     section: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
+    # Use a subquery to get only the latest analysis result per article
+    latest_analysis = (
+        select(
+            AnalysisResult.article_id,
+            AnalysisResult.sentiment_score,
+            AnalysisResult.political_lean,
+        )
+        .distinct(AnalysisResult.article_id)
+        .order_by(AnalysisResult.article_id, desc(AnalysisResult.analyzed_at))
+        .subquery()
+    )
     q = (
         select(
             Article.id, Article.title, Article.url, Article.published_at,
             Article.section, Article.word_count,
             Source.name.label("source_name"),
             Author.name.label("author_name"),
-            AnalysisResult.sentiment_score,
-            AnalysisResult.political_lean,
+            latest_analysis.c.sentiment_score,
+            latest_analysis.c.political_lean,
         )
         .outerjoin(Source, Article.source_id == Source.id)
         .outerjoin(Author, Article.author_id == Author.id)
-        .outerjoin(AnalysisResult, Article.id == AnalysisResult.article_id)
+        .outerjoin(latest_analysis, Article.id == latest_analysis.c.article_id)
         .order_by(desc(Article.published_at))
         .offset(skip)
         .limit(limit)
@@ -68,7 +79,7 @@ async def list_articles(
 async def article_stats(db: AsyncSession = Depends(get_db)):
     total = await db.scalar(select(func.count()).select_from(Article))
     analyzed = await db.scalar(
-        select(func.count()).select_from(AnalysisResult)
+        select(func.count(func.distinct(AnalysisResult.article_id))).select_from(AnalysisResult)
     )
     by_source = await db.execute(
         select(Source.name, func.count(Article.id).label("count"))

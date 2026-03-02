@@ -107,7 +107,7 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
                 "stream": False,
             }
             print(f"[Bias] Calling Ollama at {settings.ollama_base_url} with model {settings.ollama_model}")
-            async with httpx.AsyncClient(timeout=180) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
                 resp = await client.post(
                     f"{settings.ollama_base_url}/api/chat",
                     json=payload
