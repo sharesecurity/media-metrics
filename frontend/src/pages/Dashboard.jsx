@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors } from '../utils/api'
-import { Play, Database, FileText, Users } from 'lucide-react'
+import { Play, Database, FileText, Users, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -25,6 +25,7 @@ const BiasGauge = ({ value }) => {
 
 export default function Dashboard() {
   const [ingesting, setIngesting] = useState(false)
+  const [scraping, setScraping] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -69,6 +70,20 @@ export default function Dashboard() {
     setIngesting(false)
   }
 
+  const handleScrape = async () => {
+    setScraping(true)
+    setMsg('Scraping full text for articles missing content (auto-analysis enabled)...')
+    try {
+      const res = await startIngest('scrape', 50, null, true)
+      setMsg(`Scraping started for up to ${res.limit} articles. Titles and text will be extracted, then bias analysis will run automatically.`)
+      setTimeout(() => refetchStats(), 15000)
+      setTimeout(() => refetchStats(), 45000)
+    } catch (e) {
+      setMsg('Scrape failed: ' + e.message)
+    }
+    setScraping(false)
+  }
+
   const handleAnalyzeAll = async () => {
     setAnalyzing(true)
     setMsg('Queuing analysis for all unanalyzed articles...')
@@ -108,6 +123,15 @@ export default function Dashboard() {
           >
             <Database size={14} />
             {ingesting ? 'Ingesting...' : 'Ingest RSS'}
+          </button>
+          <button
+            onClick={handleScrape}
+            disabled={scraping || ingesting}
+            className="btn-ghost border border-gray-700 flex items-center gap-2 text-sm"
+            title="Scrape full text for articles missing content"
+          >
+            <RefreshCw size={14} className={scraping ? 'animate-spin' : ''} />
+            {scraping ? 'Scraping...' : 'Scrape Text'}
           </button>
           <button
             onClick={handleAnalyzeAll}
