@@ -197,6 +197,7 @@ async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
                 "sentiment_score": a.sentiment_score,
                 "sentiment_label": a.sentiment_label,
                 "subjectivity": a.subjectivity,
+                "reading_level": a.reading_level,
                 "primary_topic": a.primary_topic,
                 "raw_analysis": a.raw_analysis,
                 "analyzed_at": a.analyzed_at,
