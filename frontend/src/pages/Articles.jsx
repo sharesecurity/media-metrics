@@ -117,7 +117,7 @@ export default function Articles() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800">
-              {['Title', 'Source', 'Published', 'Sentiment', 'Political Lean', ''].map(h => (
+              {['Title', 'Source', 'Author', 'Published', 'Sentiment', 'Political Lean', ''].map(h => (
                 <th key={h} className="text-left text-xs text-gray-500 uppercase tracking-wider px-4 py-3 font-medium">
                   {h}
                 </th>
@@ -126,10 +126,10 @@ export default function Articles() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={6} className="text-center py-12 text-gray-600">Loading...</td></tr>
+              <tr><td colSpan={7} className="text-center py-12 text-gray-600">Loading...</td></tr>
             )}
             {!isLoading && !displayArticles?.length && (
-              <tr><td colSpan={6} className="text-center py-12 text-gray-600">
+              <tr><td colSpan={7} className="text-center py-12 text-gray-600">
                 No articles yet. Go to Dashboard and click "Ingest Articles".
               </td></tr>
             )}
@@ -141,6 +141,9 @@ export default function Articles() {
                   </Link>
                 </td>
                 <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{a.source_name || '—'}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs max-w-[120px] truncate" title={a.author_name || ''}>
+                  {a.author_name || <span className="text-gray-700">—</span>}
+                </td>
                 <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
                   {a.published_at ? new Date(a.published_at).toLocaleDateString() : '—'}
                 </td>
