@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { getArticleStats, getSources, startIngest, runAllAnalysis } from '../utils/api'
-import { Play, Database, FileText } from 'lucide-react'
+import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors } from '../utils/api'
+import { Play, Database, FileText, Users } from 'lucide-react'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -36,15 +36,19 @@ export default function Dashboard() {
     queryKey: ['sources'],
     queryFn: getSources,
   })
+  const { data: authors = [] } = useQuery({
+    queryKey: ['authors'],
+    queryFn: getAuthors,
+  })
 
   const handleIngest = async () => {
     setIngesting(true)
-    setMsg('Fetching live articles from RSS feeds across 10 major outlets...')
+    setMsg('Fetching live articles from RSS feeds across 10 major outlets (auto-analysis enabled)...')
     try {
-      await startIngest('rss', 15)
-      setMsg('RSS ingest started! Articles from NYT, Fox, Reuters, AP, BBC & more are being fetched. Refresh in ~30 seconds.')
+      await startIngest('rss', 15, null, true)
+      setMsg('RSS ingest + auto-analysis started! Articles from NYT, Fox, Reuters, AP, BBC & more are being fetched and analyzed automatically. Check back in a few minutes.')
       setTimeout(() => refetchStats(), 8000)
-      setTimeout(() => refetchStats(), 20000)
+      setTimeout(() => refetchStats(), 30000)
     } catch (e) {
       setMsg('Ingest failed: ' + e.message)
     }
@@ -123,15 +127,23 @@ export default function Dashboard() {
       )}
 
       {/* Stats cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {[
           { label: 'Total Articles', value: stats?.total_articles ?? '—' },
-          { label: 'Analyzed', value: stats?.analyzed_articles ?? '—' },
+          {
+            label: 'Analyzed',
+            value: stats?.analyzed_articles ?? '—',
+            sub: stats?.total_articles
+              ? `${((stats.analyzed_articles / stats.total_articles) * 100).toFixed(0)}%`
+              : null,
+          },
           { label: 'News Sources', value: sources?.length ?? '—' },
-        ].map(({ label, value }) => (
+          { label: 'Authors', value: authors.length || '—', icon: Users },
+        ].map(({ label, value, sub }) => (
           <div key={label} className="card">
             <p className="text-gray-500 text-xs uppercase tracking-wider">{label}</p>
             <p className="text-3xl font-bold text-white mt-1">{value}</p>
+            {sub && <p className="text-xs text-gray-500 mt-0.5">{sub} analyzed</p>}
           </div>
         ))}
       </div>

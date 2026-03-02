@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
-from app.models import BiasMethod
+from app.models import BiasMethod, Article, AnalysisResult
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timezone
 import uuid
 
@@ -115,3 +115,94 @@ async def toggle_bias_method(method_id: str, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(m)
     return _serialize(m)
+
+
+class MultiCompareRequest(BaseModel):
+    article_id: str
+    method_ids: Optional[List[str]] = None  # None = all active methods
+
+@router.post("/compare")
+async def multi_method_compare(
+    req: MultiCompareRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Run multiple bias methods on a single article and return all results side-by-side.
+    Each method uses its custom prompt_template if set, otherwise the default prompt.
+    Calls Ollama synchronously (no background task) so results return immediately.
+    """
+    # Get article
+    art_result = await db.execute(select(Article).where(Article.id == uuid.UUID(req.article_id)))
+    article = art_result.scalar_one_or_none()
+    if not article:
+        raise HTTPException(404, "Article not found")
+
+    # Get article text
+    text = article.raw_text or ""
+    if article.minio_key and not text:
+        try:
+            from app.services.minio_service import get_article_text
+            text = await get_article_text(article.minio_key) or ""
+        except Exception:
+            pass
+    if not text:
+        text = article.title or ""
+
+    # Get methods to run
+    if req.method_ids:
+        method_q = await db.execute(
+            select(BiasMethod).where(BiasMethod.id.in_([uuid.UUID(mid) for mid in req.method_ids]))
+        )
+    else:
+        method_q = await db.execute(
+            select(BiasMethod).where(BiasMethod.is_active == True)
+        )
+    methods = method_q.scalars().all()
+    if not methods:
+        raise HTTPException(400, "No active bias methods found")
+
+    # Run each method
+    from app.core.config import settings
+    from app.pipelines.bias_analyzer import parse_json_from_llm, BIAS_PROMPT
+    import httpx
+    results = []
+    truncated = text[:3000]
+
+    for method in methods:
+        prompt = (method.prompt_template or BIAS_PROMPT) + truncated
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+                resp = await client.post(
+                    f"{settings.ollama_base_url}/api/chat",
+                    json={
+                        "model": settings.ollama_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "stream": False,
+                    }
+                )
+            if resp.status_code == 200:
+                raw = resp.json().get("message", {}).get("content", "")
+                parsed = parse_json_from_llm(raw)
+            else:
+                parsed = {"error": f"Ollama {resp.status_code}"}
+        except Exception as e:
+            parsed = {"error": str(e)}
+
+        results.append({
+            "method_id": str(method.id),
+            "method_name": method.name,
+            "political_lean": parsed.get("political_lean"),
+            "confidence": parsed.get("confidence"),
+            "primary_topic": parsed.get("primary_topic"),
+            "framing_notes": parsed.get("framing_notes"),
+            "key_indicators": parsed.get("key_indicators", []),
+            "error": parsed.get("error"),
+        })
+
+    return {
+        "article_id": req.article_id,
+        "article_title": article.title,
+        "methods_run": len(results),
+        "results": results,
+    }
+

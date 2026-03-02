@@ -32,8 +32,8 @@ export const semanticSearch = (q, limit = 15, source = null) => {
 }
 
 // Ingest
-export const startIngest = (source = 'rss', limit = 20, sources = null) =>
-  api.post('/ingest/start', { source, limit, sources }).then(r => r.data)
+export const startIngest = (source = 'rss', limit = 20, sources = null, auto_analyze = false) =>
+  api.post('/ingest/start', { source, limit, sources, auto_analyze }).then(r => r.data)
 export const getIngestSources = () => api.get('/ingest/sources').then(r => r.data)
 
 // Chat
@@ -47,6 +47,8 @@ export const createBiasMethod = (body) => api.post('/bias-methods/', body).then(
 export const updateBiasMethod = (id, body) => api.put(`/bias-methods/${id}`, body).then(r => r.data)
 export const deleteBiasMethod = (id) => api.delete(`/bias-methods/${id}`).then(r => r.data)
 export const toggleBiasMethod = (id) => api.post(`/bias-methods/${id}/toggle`).then(r => r.data)
+export const compareMethodsOnArticle = (article_id, method_ids = null) =>
+  api.post('/bias-methods/compare', { article_id, method_ids }, { timeout: 300000 }).then(r => r.data)
 
 // MinIO migration
 export const migrateToMinio = (limit = 500) =>
