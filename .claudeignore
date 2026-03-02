@@ -1,0 +1,15 @@
+# Files/dirs Claude should skip when reading context
+node_modules/
+.venv/
+venv/
+__pycache__/
+docker/volumes/
+data/raw/
+data/sample/*.jsonl
+data/sample/*.csv
+*.log
+dist/
+build/
+.git/
+/Volumes/LabStorage/media_metrics/raw_articles/
+/Volumes/LabStorage/media_metrics/embeddings/

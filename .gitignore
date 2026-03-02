@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+*.egg
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.env.local
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Docker volumes (local data)
+docker/volumes/
+
+# Large data files
+data/raw/
+*.csv
+*.jsonl
+*.parquet
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+logs/
