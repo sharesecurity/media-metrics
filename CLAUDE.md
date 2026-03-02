@@ -31,7 +31,7 @@ Full project progress, backlog, session history, and key decisions are tracked i
 | Frontend | React 18 + Vite + Tailwind (local `npm run dev`) |
 | Primary DB | PostgreSQL 16 (Docker, port 5434) |
 | Vector DB | Qdrant (Docker, port 6333) |
-| Object Storage | MinIO (Docker, port 9010/9011) |
+| Object Storage | MinIO (Docker, port 8900/8901) |
 | Local LLM | Ollama native (NOT Docker) — `deepseek-r1:8b` |
 | Embeddings | `nomic-embed-text` via Ollama |
 
@@ -46,7 +46,8 @@ Full project progress, backlog, session history, and key decisions are tracked i
 | Frontend | http://localhost:5173 |
 | Backend API | http://localhost:8010 |
 | API Docs | http://localhost:8010/docs |
-| MinIO Console | http://localhost:9011 |
+| MinIO Console | http://localhost:8901 |
+| Celery Flower | http://localhost:5555 |
 | PostgreSQL | localhost:5434 |
 | Qdrant | localhost:6333 |
 

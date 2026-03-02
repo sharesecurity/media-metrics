@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
-import { getArticle, runAnalysis, getBiasMethods, compareMethodsOnArticle } from '../utils/api'
-import { ArrowLeft, Play, ExternalLink, GitCompare, CheckSquare, Square } from 'lucide-react'
+import { getArticle, runAnalysis, getBiasMethods, compareMethodsOnArticle, getTaskStatus } from '../utils/api'
+import { ArrowLeft, Play, ExternalLink, GitCompare, CheckSquare, Square, Loader2 } from 'lucide-react'
 
 const MetricCard = ({ label, value, unit = '', color = 'text-white' }) => (
   <div className="card text-center">
@@ -57,16 +57,36 @@ function LeanBadge({ value }) {
   )
 }
 
+const TERMINAL_STATES = new Set(['SUCCESS', 'FAILURE', 'REVOKED', 'BACKGROUND'])
+
 export default function ArticleDetail() {
   const { id } = useParams()
   const queryClient = useQueryClient()
   const [showCompare, setShowCompare] = useState(false)
   const [selectedMethods, setSelectedMethods] = useState([])
   const [compareResults, setCompareResults] = useState(null)
+  const [activeTaskId, setActiveTaskId] = useState(null)
 
   const { data: article, isLoading, refetch } = useQuery({
     queryKey: ['article', id],
     queryFn: () => getArticle(id),
+  })
+
+  // Poll Celery task status while a task is running
+  const { data: taskStatus } = useQuery({
+    queryKey: ['task-status', activeTaskId],
+    queryFn: () => getTaskStatus(activeTaskId),
+    enabled: !!activeTaskId,
+    refetchInterval: (data) => {
+      if (!data || TERMINAL_STATES.has(data.status)) return false
+      return 2000
+    },
+    onSuccess: (data) => {
+      if (data && TERMINAL_STATES.has(data.status)) {
+        setActiveTaskId(null)
+        refetch() // pull fresh article with new analysis
+      }
+    },
   })
 
   const { data: biasMethods = [] } = useQuery({
@@ -77,9 +97,13 @@ export default function ArticleDetail() {
 
   const analyzeMutation = useMutation({
     mutationFn: () => runAnalysis(id),
-    onSuccess: () => {
-      setTimeout(() => refetch(), 3000)
-    }
+    onSuccess: (data) => {
+      if (data.task_id && data.task_id !== 'background') {
+        setActiveTaskId(data.task_id)
+      } else {
+        setTimeout(() => refetch(), 5000)
+      }
+    },
   })
 
   const compareMutation = useMutation({
@@ -131,8 +155,26 @@ export default function ArticleDetail() {
         )}
       </div>
 
+      {/* Task status banner */}
+      {activeTaskId && (
+        <div className="bg-blue-950 border border-blue-800 rounded-xl px-4 py-3 flex items-center gap-3">
+          <Loader2 size={16} className="text-blue-400 animate-spin shrink-0" />
+          <div className="flex-1">
+            <p className="text-blue-300 text-sm font-medium">
+              Analysis running
+              {taskStatus?.status && taskStatus.status !== 'PENDING'
+                ? ` — ${taskStatus.status}`
+                : '…'}
+            </p>
+            <p className="text-blue-600 text-xs mt-0.5">
+              Task {activeTaskId.slice(0, 8)}… · results will appear automatically when done
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Analysis trigger */}
-      {!latest && (
+      {!latest && !activeTaskId && (
         <div className="card flex items-center justify-between">
           <p className="text-gray-400 text-sm">This article hasn't been analyzed yet.</p>
           <button
@@ -157,9 +199,12 @@ export default function ArticleDetail() {
               </span>
               <button
                 onClick={() => analyzeMutation.mutate()}
-                className="btn-ghost text-xs border border-gray-700"
+                disabled={!!activeTaskId || analyzeMutation.isPending}
+                className="btn-ghost text-xs border border-gray-700 flex items-center gap-1"
               >
-                Re-analyze
+                {activeTaskId
+                  ? <><Loader2 size={11} className="animate-spin" /> Running…</>
+                  : 'Re-analyze'}
               </button>
               <button
                 onClick={() => { setShowCompare(!showCompare); setCompareResults(null) }}
