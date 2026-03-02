@@ -1,5 +1,11 @@
 version: "3.9"
 
+# Port assignments (chosen to avoid conflicts with other projects on this machine):
+#   mm_postgres  → 5434  (5432=system, 5433=pain-postgres)
+#   mm_qdrant    → 6333/6334 (free)
+#   mm_minio     → 9010 API, 9011 console
+#   mm_backend   → 8010
+
 services:
   postgres:
     image: postgres:16
@@ -10,7 +16,7 @@ services:
       POSTGRES_PASSWORD: media_metrics_2024
       POSTGRES_DB: media_metrics
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -39,8 +45,8 @@ services:
       MINIO_ROOT_USER: media_metrics
       MINIO_ROOT_PASSWORD: media_metrics_2024
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9010:9000"
+      - "9011:9001"
     volumes:
       - /Volumes/LabStorage/media_metrics/minio:/data
 
@@ -49,15 +55,13 @@ services:
     container_name: mm_backend
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8010:8000"
     env_file:
       - .env
     environment:
-      # Override for Docker networking (services reach each other by container name)
       DATABASE_URL: postgresql+asyncpg://media:media_metrics_2024@postgres:5432/media_metrics
       QDRANT_HOST: qdrant
       MINIO_HOST: minio
-      # Ollama is native on host — containers reach it via host.docker.internal
       OLLAMA_URL: http://host.docker.internal:11434
     depends_on:
       postgres:
@@ -74,6 +78,3 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
-
-# Note: Frontend runs locally via `npm run dev` in frontend/ for development.
-# For production, build and serve the frontend separately.
