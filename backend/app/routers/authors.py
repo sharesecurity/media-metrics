@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 from app.database import get_db
 from app.models import Author, Article, AnalysisResult, Source
-from app.services.demographics import infer_demographics
+from app.services.demographics import infer_demographics, infer_ethnicity_with_confidence
 from typing import Optional
 
 router = APIRouter()
@@ -125,6 +125,53 @@ async def infer_all_demographics(
     ids = [str(a.id) for a in authors]
     background_tasks.add_task(_do_infer, ids)
     return {"status": "started", "count": len(ids)}
+
+
+@router.post("/re-infer-ethnicity")
+async def re_infer_all_ethnicity(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Force-rerun ethnicity inference for ALL authors using the full Census
+    2010 surname list (162K surnames). Overwrites existing ethnicity values.
+    Useful after upgrading from the old ~200-surname lookup to the full dataset.
+    """
+    result = await db.execute(select(Author).limit(2000))
+    authors = result.scalars().all()
+    ids = [str(a.id) for a in authors]
+    background_tasks.add_task(_do_reinfer_ethnicity, ids)
+    return {"status": "started", "count": len(ids)}
+
+
+async def _do_reinfer_ethnicity(author_ids: list[str]):
+    """Re-infer ethnicity for all given authors using the full Census dataset."""
+    from app.core.database import AsyncSessionLocal
+    import uuid
+    updated = 0
+    async with AsyncSessionLocal() as db:
+        for aid in author_ids:
+            try:
+                result = await db.execute(
+                    select(Author).where(Author.id == uuid.UUID(aid))
+                )
+                author = result.scalar_one_or_none()
+                if not author:
+                    continue
+                ethnicity, confidence = infer_ethnicity_with_confidence(author.name)
+                await db.execute(
+                    update(Author)
+                    .where(Author.id == uuid.UUID(aid))
+                    .values(ethnicity=ethnicity)
+                )
+                await db.commit()
+                updated += 1
+                if updated % 10 == 0:
+                    print(f"[Re-infer] Updated {updated}/{len(author_ids)} authors…")
+            except Exception as e:
+                print(f"[Re-infer] Error for {aid}: {e}")
+                await db.rollback()
+    print(f"[Re-infer] Done — updated ethnicity for {updated} authors")
 
 async def _do_infer(author_ids: list[str]):
     from app.core.database import AsyncSessionLocal

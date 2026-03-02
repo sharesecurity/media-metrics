@@ -3,7 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { Users, RefreshCw, User } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { getAuthors, getDemographicsSummary, inferAllDemographics } from '../utils/api'
+import { getAuthors, getDemographicsSummary, inferAllDemographics, reInferEthnicity } from '../utils/api'
 
 const GENDER_COLORS = {
   male: '#3b82f6',
@@ -49,12 +49,15 @@ export default function Authors() {
 
   const inferMutation = useMutation({
     mutationFn: inferAllDemographics,
-    onSuccess: (data) => {
-      setInferred(true)
-      setTimeout(() => {
-        refetchAuthors()
-        refetchSummary()
-      }, 3000)
+    onSuccess: () => {
+      setTimeout(() => { refetchAuthors(); refetchSummary() }, 3000)
+    },
+  })
+
+  const reInferMutation = useMutation({
+    mutationFn: reInferEthnicity,
+    onSuccess: () => {
+      setTimeout(() => { refetchAuthors(); refetchSummary() }, 4000)
     },
   })
 
@@ -92,19 +95,33 @@ export default function Authors() {
             {summary?.total_authors ?? authors.length} authors · demographic breakdown
           </p>
         </div>
-        <button
-          onClick={() => inferMutation.mutate()}
-          disabled={inferMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
-        >
-          <RefreshCw size={14} className={inferMutation.isPending ? 'animate-spin' : ''} />
-          {inferMutation.isPending ? 'Inferring...' : 'Infer Demographics'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => reInferMutation.mutate()}
+            disabled={reInferMutation.isPending}
+            title="Re-run ethnicity for ALL authors using the full 162K Census surname list"
+            className="flex items-center gap-2 px-4 py-2 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
+          >
+            <RefreshCw size={14} className={reInferMutation.isPending ? 'animate-spin' : ''} />
+            {reInferMutation.isPending ? 'Re-inferring...' : 'Re-infer Ethnicity (162K)'}
+          </button>
+          <button
+            onClick={() => inferMutation.mutate()}
+            disabled={inferMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition-colors"
+          >
+            <RefreshCw size={14} className={inferMutation.isPending ? 'animate-spin' : ''} />
+            {inferMutation.isPending ? 'Inferring...' : 'Infer Demographics'}
+          </button>
+        </div>
       </div>
 
-      {inferMutation.isSuccess && (
+      {(inferMutation.isSuccess || reInferMutation.isSuccess) && (
         <div className="bg-green-900/30 border border-green-700 rounded-lg p-3 text-green-300 text-sm">
-          Demographics inference started for {inferMutation.data?.count} authors. Charts will update shortly.
+          {reInferMutation.isSuccess
+            ? `Ethnicity re-inference started for ${reInferMutation.data?.count} authors using 162K Census surnames. Charts will update shortly.`
+            : `Demographics inference started for ${inferMutation.data?.count} authors. Charts will update shortly.`
+          }
         </div>
       )}
 

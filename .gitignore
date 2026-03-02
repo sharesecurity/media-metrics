@@ -26,6 +26,7 @@ data/raw/
 *.csv
 *.jsonl
 *.parquet
+*.pkl
 
 # IDE
 .DS_Store

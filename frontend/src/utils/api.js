@@ -69,5 +69,6 @@ export const getAuthors = () => api.get('/authors/').then(r => r.data)
 export const getAuthor = (id) => api.get(`/authors/${id}`).then(r => r.data)
 export const getDemographicsSummary = () => api.get('/authors/demographics/summary').then(r => r.data)
 export const inferAllDemographics = () => api.post('/authors/infer-demographics').then(r => r.data)
+export const reInferEthnicity = () => api.post('/authors/re-infer-ethnicity').then(r => r.data)
 export const getAuthorComparison = (params = {}) =>
   api.get('/authors/comparison', { params }).then(r => r.data)
