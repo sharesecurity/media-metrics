@@ -70,6 +70,18 @@ async def get_analysis_results(article_id: str, db: AsyncSession = Depends(get_d
         for r in rows
     ]
 
+@router.post("/force-reanalyze")
+async def force_reanalyze_all(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """Re-queue ALL articles for analysis (overwrites existing results)."""
+    result = await db.execute(select(Article.id).limit(200))
+    ids = [str(r.id) for r in result.all()]
+    for aid in ids:
+        background_tasks.add_task(analyze_article_bias, aid, "full")
+    return {"status": "queued", "count": len(ids)}
+
 @router.get("/trends")
 async def get_trends(
     source_id: Optional[str] = None,

@@ -122,7 +122,9 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
                 else:
                     print(f"[Bias] Ollama non-200: {resp.status_code} {resp.text[:200]}")
         except Exception as e:
-            print(f"[Bias] LLM error ({type(e).__name__}): {e}")
+            import traceback
+            print(f"[Bias] LLM error ({type(e).__name__}): {e!r}")
+            print(traceback.format_exc())
 
         # 4. Store results
         try:
