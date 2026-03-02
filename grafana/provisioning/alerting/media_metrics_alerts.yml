@@ -1,0 +1,225 @@
+apiVersion: 1
+
+# Contact points — log to Grafana UI (no external webhook required)
+contactPoints:
+  - orgId: 1
+    name: media-metrics-notifications
+    receivers:
+      - uid: mm-default-receiver
+        type: email
+        settings:
+          addresses: admin@localhost
+          singleEmail: false
+        disableResolveMessage: false
+
+# Mute timings (none defined — alerts fire 24/7)
+muteTimes: []
+
+# Notification policy routing
+policies:
+  - orgId: 1
+    receiver: media-metrics-notifications
+    group_by: ['alertname']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h
+    matchers: []
+
+# Alert rule groups
+groups:
+  - orgId: 1
+    name: Media Metrics Core Alerts
+    folder: Media Metrics
+    interval: 5m
+    rules:
+
+      # -----------------------------------------------------------------
+      # 1. Extreme political lean: any source averaged > 0.75 in last 24h
+      # -----------------------------------------------------------------
+      - uid: mm_alert_extreme_lean
+        title: Extreme Political Lean Detected
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: media_metrics_pg
+            model:
+              rawSql: >
+                SELECT
+                  COUNT(*) as extreme_count
+                FROM (
+                  SELECT s.name, AVG(ar.political_lean) as avg_lean
+                  FROM analysis_results ar
+                  JOIN articles a ON ar.article_id = a.id
+                  JOIN sources s ON a.source_id = s.id
+                  WHERE ar.analyzed_at > NOW() - INTERVAL '24 hours'
+                    AND ar.political_lean IS NOT NULL
+                  GROUP BY s.name
+                  HAVING ABS(AVG(ar.political_lean)) > 0.75
+                ) t
+              format: table
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              hide: false
+              reducer: last
+              type: reduce
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: Extreme bias in a news source
+          description: >
+            At least one news source has an average political lean above 0.75 or
+            below -0.75 in the last 24 hours. Review the Bias Analysis dashboard.
+        labels:
+          severity: warning
+          category: bias
+        isPaused: false
+
+      # -----------------------------------------------------------------
+      # 2. No new articles ingested in 24 hours
+      # -----------------------------------------------------------------
+      - uid: mm_alert_no_ingest
+        title: No New Articles Ingested in 24h
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: media_metrics_pg
+            model:
+              rawSql: >
+                SELECT COALESCE(COUNT(*), 0) as new_count
+                FROM articles
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+              format: table
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              hide: false
+              reducer: last
+              type: reduce
+        noDataState: Alerting
+        execErrState: Error
+        for: 60m
+        annotations:
+          summary: Article ingest pipeline may be down
+          description: >
+            No new articles have been ingested in the last 24 hours.
+            Check the RSS or GDELT ingest pipeline.
+        labels:
+          severity: critical
+          category: pipeline
+        isPaused: false
+
+      # -----------------------------------------------------------------
+      # 3. Analysis backlog — unanalyzed articles > 20
+      # -----------------------------------------------------------------
+      - uid: mm_alert_backlog
+        title: Analysis Backlog Too Large
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: media_metrics_pg
+            model:
+              rawSql: >
+                SELECT COUNT(*) as unanalyzed
+                FROM articles a
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM analysis_results ar WHERE ar.article_id = a.id
+                )
+              format: table
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 20
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              hide: false
+              reducer: last
+              type: reduce
+        noDataState: OK
+        execErrState: Error
+        for: 30m
+        annotations:
+          summary: Analysis pipeline backlog
+          description: >
+            More than 20 articles are waiting to be analyzed.
+            The bias analysis pipeline may be stalled.
+        labels:
+          severity: warning
+          category: pipeline
+        isPaused: false

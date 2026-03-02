@@ -51,3 +51,9 @@ export const toggleBiasMethod = (id) => api.post(`/bias-methods/${id}/toggle`).t
 // MinIO migration
 export const migrateToMinio = (limit = 500) =>
   api.post('/articles/migrate-to-minio', null, { params: { limit } }).then(r => r.data)
+
+// Authors / demographics
+export const getAuthors = () => api.get('/authors/').then(r => r.data)
+export const getAuthor = (id) => api.get(`/authors/${id}`).then(r => r.data)
+export const getDemographicsSummary = () => api.get('/authors/demographics/summary').then(r => r.data)
+export const inferAllDemographics = () => api.post('/authors/infer-demographics').then(r => r.data)

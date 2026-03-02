@@ -13,16 +13,21 @@ class IngestRequest(BaseModel):
     date: Optional[str] = None  # YYYY-MM-DD (for gdelt)
     sources: Optional[List[str]] = None  # filter to specific outlets (for rss)
     concurrency: int = 5  # parallel scrape workers
+    auto_analyze: bool = True  # automatically queue analysis after ingest
 
 @router.post("/start")
 async def start_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
-    """Start a data ingestion job."""
+    """Start a data ingestion job. Set auto_analyze=true to automatically queue bias analysis for new articles."""
     if req.source == "rss":
-        background_tasks.add_task(ingest_rss_feeds, req.limit, req.sources)
+        if req.auto_analyze:
+            background_tasks.add_task(_ingest_then_analyze_rss, req.limit, req.sources)
+        else:
+            background_tasks.add_task(ingest_rss_feeds, req.limit, req.sources)
         return {
             "status": "started",
             "source": "rss",
             "limit_per_source": req.limit,
+            "auto_analyze": req.auto_analyze,
             "outlets": req.sources or list(RSS_FEEDS.keys()),
         }
     elif req.source == "scrape":
@@ -35,13 +40,48 @@ async def start_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
             "message": "Scraping full text for articles missing raw_text. Check backend logs for progress.",
         }
     elif req.source == "gdelt":
-        background_tasks.add_task(ingest_gdelt_sample, req.limit, req.date)
-        return {"status": "started", "source": "gdelt", "limit": req.limit}
+        if req.auto_analyze:
+            background_tasks.add_task(_ingest_then_analyze_gdelt, req.limit, req.date)
+        else:
+            background_tasks.add_task(ingest_gdelt_sample, req.limit, req.date)
+        return {"status": "started", "source": "gdelt", "limit": req.limit, "auto_analyze": req.auto_analyze}
     elif req.source == "embedded":
         from app.pipelines.gdelt_ingest import ingest_embedded_sample
-        background_tasks.add_task(ingest_embedded_sample, req.limit)
-        return {"status": "started", "source": "embedded"}
+        if req.auto_analyze:
+            background_tasks.add_task(_ingest_then_analyze_embedded, req.limit)
+        else:
+            background_tasks.add_task(ingest_embedded_sample, req.limit)
+        return {"status": "started", "source": "embedded", "auto_analyze": req.auto_analyze}
     return {"error": f"Unknown source: {req.source}"}
+
+async def _queue_unanalyzed():
+    """Queue bias analysis for all articles that don't yet have analysis results."""
+    from app.core.database import AsyncSessionLocal
+    from app.models import Article, AnalysisResult
+    from app.pipelines.bias_analyzer import analyze_article_bias
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as db:
+        analyzed_ids = select(AnalysisResult.article_id)
+        result = await db.execute(
+            select(Article.id).where(~Article.id.in_(analyzed_ids)).limit(200)
+        )
+        ids = [str(r.id) for r in result.all()]
+    print(f"[Ingest] Auto-queuing analysis for {len(ids)} new articles")
+    for aid in ids:
+        await analyze_article_bias(aid, "full")
+
+async def _ingest_then_analyze_rss(limit: int, sources):
+    await ingest_rss_feeds(limit, sources)
+    await _queue_unanalyzed()
+
+async def _ingest_then_analyze_gdelt(limit: int, date):
+    await ingest_gdelt_sample(limit, date)
+    await _queue_unanalyzed()
+
+async def _ingest_then_analyze_embedded(limit: int):
+    from app.pipelines.gdelt_ingest import ingest_embedded_sample
+    await ingest_embedded_sample(limit)
+    await _queue_unanalyzed()
 
 @router.get("/status")
 async def ingest_status():

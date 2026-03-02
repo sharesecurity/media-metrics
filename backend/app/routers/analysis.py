@@ -82,6 +82,77 @@ async def force_reanalyze_all(
         background_tasks.add_task(analyze_article_bias, aid, "full")
     return {"status": "queued", "count": len(ids)}
 
+@router.post("/rebuild-embeddings")
+async def rebuild_qdrant_embeddings(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Re-generate Qdrant embeddings for all articles that already have analysis results.
+    Much faster than force-reanalyze because it skips the LLM step.
+    """
+    result = await db.execute(
+        select(Article.id, AnalysisResult.article_id)
+        .join(AnalysisResult, Article.id == AnalysisResult.article_id)
+        .distinct(Article.id)
+        .limit(200)
+    )
+    ids = list({str(r[0]) for r in result.all()})
+    background_tasks.add_task(_rebuild_embeddings_bg, ids)
+    return {"status": "started", "count": len(ids)}
+
+async def _rebuild_embeddings_bg(article_ids: list[str]):
+    from app.core.database import AsyncSessionLocal
+    from app.pipelines.bias_analyzer import _generate_embedding, _upsert_to_qdrant
+    from app.models import Source
+    async with AsyncSessionLocal() as db:
+        for aid in article_ids:
+            try:
+                result = await db.execute(
+                    select(Article, Source.name.label("source_name"))
+                    .outerjoin(Source, Article.source_id == Source.id)
+                    .where(Article.id == uuid.UUID(aid))
+                )
+                row = result.one_or_none()
+                if not row:
+                    continue
+                article, source_name = row
+
+                ar = await db.execute(
+                    select(AnalysisResult)
+                    .where(AnalysisResult.article_id == uuid.UUID(aid))
+                    .order_by(AnalysisResult.analyzed_at.desc())
+                    .limit(1)
+                )
+                analysis = ar.scalar_one_or_none()
+                if not analysis:
+                    continue
+
+                # Get text
+                text = article.raw_text or ""
+                if article.minio_key and not text:
+                    try:
+                        from app.services.minio_service import get_article_text
+                        text = await get_article_text(article.minio_key) or ""
+                    except Exception:
+                        pass
+                if not text:
+                    text = article.title or ""
+
+                embedding = await _generate_embedding(text[:2048])
+                if embedding:
+                    await _upsert_to_qdrant(aid, embedding, {
+                        "title": article.title,
+                        "source": source_name,
+                        "political_lean": analysis.political_lean,
+                        "sentiment": analysis.sentiment_score,
+                    })
+                    print(f"[Embed] ✓ {article.title[:50]}")
+                else:
+                    print(f"[Embed] ✗ embedding failed for {aid}")
+            except Exception as e:
+                print(f"[Embed] Error for {aid}: {e}")
+
 @router.get("/trends")
 async def get_trends(
     source_id: Optional[str] = None,

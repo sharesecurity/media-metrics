@@ -14,7 +14,7 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select
 from app.config import settings
-from app.models import Article, Source
+from app.models import Article, Source, Author
 
 engine = create_async_engine(settings.database_url)
 AsyncSession_ = async_sessionmaker(engine, expire_on_commit=False)
@@ -140,6 +140,54 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def extract_author_from_rss_item(item: ET.Element, text: str = "") -> Optional[str]:
+    """Extract author from RSS item dc:creator, then fall back to byline patterns in text."""
+    # dc:creator is the standard RSS author field
+    creator = item.find("dc:creator", NS)
+    if creator is not None and creator.text:
+        name = creator.text.strip()
+        parts = name.split()
+        if 2 <= len(parts) <= 4 and all(p[0].isupper() for p in parts if p):
+            return name
+
+    # Fallback: byline patterns in article text
+    if text:
+        patterns = [
+            r'^By ([A-Z][a-z]+ [A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+            r'By ([A-Z][a-z]+ [A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s*[|\n\r]',
+            r'Written by ([A-Z][a-z]+ [A-Z][a-z]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text[:500])
+            if match:
+                name = match.group(1).strip()
+                parts = name.split()
+                if 2 <= len(parts) <= 4:
+                    return name
+    return None
+
+async def get_or_create_author(db: AsyncSession, name: str, source_id: uuid.UUID) -> Optional[uuid.UUID]:
+    """Find or create an author record with demographic inference."""
+    from app.services.demographics import infer_demographics
+    result = await db.execute(
+        select(Author).where(Author.name == name, Author.source_id == source_id)
+    )
+    author = result.scalar_one_or_none()
+    if author:
+        return author.id
+    demo = infer_demographics(name)
+    author = Author(
+        name=name,
+        source_id=source_id,
+        gender=demo.get("gender"),
+        ethnicity=demo.get("ethnicity"),
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(author)
+    await db.commit()
+    await db.refresh(author)
+    return author.id
+
 def extract_text_from_rss_item(item: ET.Element) -> str:
     """Extract as much text content as possible from an RSS item."""
     parts = []
@@ -189,18 +237,20 @@ def parse_rss_feed(xml_content: bytes) -> List[dict]:
                 link_el = item.find(f"{{{ns_atom}}}link")
                 if link_el is not None:
                     link = link_el.get("href")
-            
-            pub_date_str = (get_text("pubDate") or get_text("published", ns_atom) 
+
+            pub_date_str = (get_text("pubDate") or get_text("published", ns_atom)
                            or get_text("updated", ns_atom) or get_text("date", "http://purl.org/dc/elements/1.1/"))
-            
+
             text = extract_text_from_rss_item(item)
-            
+            author = extract_author_from_rss_item(item, text)
+
             if title and link:
                 articles.append({
                     "title": clean_html(title),
                     "url": link,
                     "published_at": parse_rss_date(pub_date_str) if pub_date_str else None,
                     "text": text,
+                    "author": author,
                 })
     except ET.ParseError as e:
         print(f"[RSS] XML parse error: {e}")
@@ -317,8 +367,18 @@ async def ingest_rss_feeds(
                         if len(text) < min_text_length:
                             continue
                         
+                        # Extract author if present
+                        author_id = None
+                        author_name = art.get("author")
+                        if author_name:
+                            try:
+                                author_id = await get_or_create_author(db, author_name, source_id)
+                            except Exception as ae:
+                                print(f"[RSS] Author create failed: {ae}")
+
                         article = Article(
                             source_id=source_id,
+                            author_id=author_id,
                             url=art["url"],
                             title=art["title"][:500],
                             published_at=art.get("published_at") or datetime.now(timezone.utc),

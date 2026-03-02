@@ -83,16 +83,20 @@ async def get_or_create_source(db: AsyncSession, domain: str, name: str) -> Opti
     return source.id
 
 async def get_or_create_author(db: AsyncSession, name: str, source_id: uuid.UUID) -> Optional[uuid.UUID]:
-    """Find or create an author record."""
+    """Find or create an author record, with demographic inference on creation."""
+    from app.services.demographics import infer_demographics
     result = await db.execute(
         select(Author).where(Author.name == name, Author.source_id == source_id)
     )
     author = result.scalar_one_or_none()
     if author:
         return author.id
+    demo = infer_demographics(name)
     author = Author(
         name=name,
         source_id=source_id,
+        gender=demo.get("gender"),
+        ethnicity=demo.get("ethnicity"),
         created_at=datetime.now(timezone.utc),
     )
     db.add(author)

@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings } from 'lucide-react'
+import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Articles from './pages/Articles'
 import ArticleDetail from './pages/ArticleDetail'
@@ -8,6 +8,7 @@ import Chat from './pages/Chat'
 import Trends from './pages/Trends'
 import SemanticSearch from './pages/SemanticSearch'
 import BiasMethodEditor from './pages/BiasMethodEditor'
+import Authors from './pages/Authors'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -15,6 +16,7 @@ const NAV = [
   { to: '/bias', icon: BarChart2, label: 'Bias Analysis' },
   { to: '/trends', icon: TrendingUp, label: 'Trends' },
   { to: '/search', icon: Search, label: 'Semantic Search' },
+  { to: '/authors', icon: Users, label: 'Authors' },
   { to: '/chat', icon: MessageSquare, label: 'AI Chat' },
   { to: '/bias-methods', icon: Settings, label: 'Bias Methods' },
 ]
@@ -68,6 +70,7 @@ export default function App() {
           <Route path="/bias" element={<BiasAnalysis />} />
           <Route path="/trends" element={<Trends />} />
           <Route path="/search" element={<SemanticSearch />} />
+          <Route path="/authors" element={<Authors />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/bias-methods" element={<BiasMethodEditor />} />
         </Routes>
