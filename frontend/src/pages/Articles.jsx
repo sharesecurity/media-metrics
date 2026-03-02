@@ -25,12 +25,14 @@ const BiasBar = ({ value }) => {
 export default function Articles() {
   const [q, setQ] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
+  const [leanFilter, setLeanFilter] = useState('all') // all | left | center | right
+  const [analyzedOnly, setAnalyzedOnly] = useState(false)
   const [debouncedQ, setDebouncedQ] = useState('')
 
   const { data: sources } = useQuery({ queryKey: ['sources'], queryFn: getSources })
   const { data: articles, isLoading } = useQuery({
     queryKey: ['articles', sourceFilter],
-    queryFn: () => getArticles({ source_id: sourceFilter || undefined, limit: 100 }),
+    queryFn: () => getArticles({ source_id: sourceFilter || undefined, limit: 200 }),
   })
   const { data: searchResults } = useQuery({
     queryKey: ['search', debouncedQ],
@@ -44,7 +46,14 @@ export default function Articles() {
     window._searchTimer = setTimeout(() => setDebouncedQ(val), 400)
   }
 
-  const displayArticles = debouncedQ.length > 2 ? searchResults : articles
+  const baseArticles = debouncedQ.length > 2 ? searchResults : articles
+  const displayArticles = (baseArticles || []).filter(a => {
+    if (analyzedOnly && a.political_lean == null) return false
+    if (leanFilter === 'left' && (a.political_lean == null || a.political_lean >= -0.2)) return false
+    if (leanFilter === 'center' && (a.political_lean == null || a.political_lean < -0.2 || a.political_lean > 0.2)) return false
+    if (leanFilter === 'right' && (a.political_lean == null || a.political_lean <= 0.2)) return false
+    return true
+  })
 
   const sentimentColor = (s) => {
     if (s == null) return 'text-gray-600'
@@ -57,12 +66,14 @@ export default function Articles() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Articles</h1>
-        <span className="text-sm text-gray-500">{displayArticles?.length ?? 0} articles</span>
+        <span className="text-sm text-gray-500">
+          {displayArticles.length} {(leanFilter !== 'all' || analyzedOnly) ? `of ${baseArticles?.length ?? 0} ` : ''}articles
+        </span>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-wrap gap-3">
+        <div className="relative flex-1 min-w-48">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
             type="text"
@@ -82,6 +93,23 @@ export default function Articles() {
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
+        <div className="flex rounded-lg overflow-hidden border border-gray-700 text-sm">
+          {[['all','All Lean'],['left','Left'],['center','Center'],['right','Right']].map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setLeanFilter(val)}
+              className={`px-3 py-2 transition-colors ${leanFilter === val ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setAnalyzedOnly(v => !v)}
+          className={`px-3 py-2 rounded-lg border text-sm transition-colors ${analyzedOnly ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}
+        >
+          Analyzed only
+        </button>
       </div>
 
       {/* Table */}
