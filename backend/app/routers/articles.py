@@ -31,6 +31,7 @@ async def list_articles(
     limit: int = 50,
     source_id: Optional[str] = None,
     section: Optional[str] = None,
+    author_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     # Use a subquery to get only the latest analysis result per article
@@ -64,6 +65,8 @@ async def list_articles(
         q = q.where(Article.source_id == uuid.UUID(source_id))
     if section:
         q = q.where(Article.section == section)
+    if author_id:
+        q = q.where(Article.author_id == uuid.UUID(author_id))
 
     result = await db.execute(q)
     rows = result.all()

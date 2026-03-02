@@ -7,6 +7,8 @@ const api = axios.create({
 
 // Articles
 export const getArticles = (params) => api.get('/articles/', { params }).then(r => r.data)
+export const getArticlesByAuthor = (author_id, limit = 50) =>
+  api.get('/articles/', { params: { author_id, limit } }).then(r => r.data)
 export const getArticle = (id) => api.get(`/articles/${id}`).then(r => r.data)
 export const getArticleStats = () => api.get('/articles/stats').then(r => r.data)
 

@@ -9,6 +9,7 @@ import Trends from './pages/Trends'
 import SemanticSearch from './pages/SemanticSearch'
 import BiasMethodEditor from './pages/BiasMethodEditor'
 import Authors from './pages/Authors'
+import AuthorDetail from './pages/AuthorDetail'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="/trends" element={<Trends />} />
           <Route path="/search" element={<SemanticSearch />} />
           <Route path="/authors" element={<Authors />} />
+          <Route path="/authors/:id" element={<AuthorDetail />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/bias-methods" element={<BiasMethodEditor />} />
         </Routes>

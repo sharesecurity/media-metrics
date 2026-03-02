@@ -1,16 +1,22 @@
 from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from app.database import get_db
-from app.models import Author, Article
+from app.models import Author, Article, Source
 from app.services.demographics import infer_demographics
 
 router = APIRouter()
 
 @router.get("/")
 async def list_authors(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Author).order_by(Author.name).limit(500))
-    authors = result.scalars().all()
+    # Join with Source to get source name, count articles
+    result = await db.execute(
+        select(Author, Source.name.label("source_name"))
+        .outerjoin(Source, Author.source_id == Source.id)
+        .order_by(Author.name)
+        .limit(500)
+    )
+    rows = result.all()
     return [
         {
             "id": str(a.id),
@@ -18,8 +24,9 @@ async def list_authors(db: AsyncSession = Depends(get_db)):
             "gender": a.gender,
             "ethnicity": a.ethnicity,
             "source_id": str(a.source_id) if a.source_id else None,
+            "source_name": source_name,
         }
-        for a in authors
+        for a, source_name in rows
     ]
 
 @router.get("/demographics/summary")
