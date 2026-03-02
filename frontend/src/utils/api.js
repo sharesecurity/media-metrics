@@ -19,6 +19,13 @@ export const getAnalysisResults = (article_id) => api.get(`/analysis/results/${a
 export const getTrends = (params) => api.get('/analysis/trends', { params }).then(r => r.data)
 export const getTrendsBySource = (metric = 'political_lean') =>
   api.get('/analysis/trends/by-source', { params: { metric } }).then(r => r.data)
+export const getSourceSummary = () => api.get('/analysis/source-summary').then(r => r.data)
+export const getTaskStatus = (task_id) => api.get(`/analysis/task/${task_id}`).then(r => r.data)
+export const getQueueStats = () => api.get('/analysis/queue-stats').then(r => r.data)
+export const getByDemographic = (group_by = 'gender') =>
+  api.get('/analysis/by-demographic', { params: { group_by } }).then(r => r.data)
+export const getByDemographicBySource = (group_by = 'gender') =>
+  api.get('/analysis/by-demographic/by-source', { params: { group_by } }).then(r => r.data)
 
 // Sources
 export const getSources = () => api.get('/sources/').then(r => r.data)
