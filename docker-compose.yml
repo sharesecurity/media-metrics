@@ -64,12 +64,54 @@ services:
       QDRANT_HOST: qdrant
       MINIO_HOST: minio
       OLLAMA_URL: http://host.docker.internal:11434
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
         condition: service_started
       minio:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  redis:
+    image: redis:7-alpine
+    container_name: mm_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  celery-worker:
+    build: ./backend
+    container_name: mm_celery_worker
+    restart: unless-stopped
+    command: celery -A app.worker worker --loglevel=info --concurrency=1 -Q default
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://media:media_metrics_2024@postgres:5432/media_metrics
+      QDRANT_HOST: qdrant
+      MINIO_HOST: minio
+      OLLAMA_URL: http://host.docker.internal:11434
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
         condition: service_started
     volumes:
       - ./backend:/app
@@ -100,3 +142,4 @@ volumes:
   postgres_data:
   qdrant_data:
   grafana_data:
+  redis_data:

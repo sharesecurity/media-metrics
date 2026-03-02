@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus } from '../utils/api'
-import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu } from 'lucide-react'
+import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats } from '../utils/api'
+import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity } from 'lucide-react'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -46,6 +46,12 @@ export default function Dashboard() {
     queryKey: ['ingest-status'],
     queryFn: getIngestStatus,
     refetchInterval: (data) => (data?.scraper?.running ? 3000 : 15000),
+  })
+
+  const { data: queueStats } = useQuery({
+    queryKey: ['queue-stats'],
+    queryFn: getQueueStats,
+    refetchInterval: 10000,
   })
 
   const handleIngest = async () => {
@@ -157,25 +163,25 @@ export default function Dashboard() {
       )}
 
       {/* Pipeline status panel */}
-      {ingestStatus && (ingestStatus.scraper?.running || ingestStatus.scraper?.needs_scrape > 0 || ingestStatus.analysis?.needs_analysis > 0) && (
+      {(ingestStatus && (ingestStatus.scraper?.running || ingestStatus.scraper?.needs_scrape > 0 || ingestStatus.analysis?.needs_analysis > 0)) || (queueStats && (queueStats.active > 0 || queueStats.queued > 0 || queueStats.workers?.length > 0)) ? (
         <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
           <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-3">Pipeline Status</h3>
           <div className="flex gap-6">
             <div className="flex items-center gap-3">
-              <Globe size={16} className={ingestStatus.scraper?.running ? 'text-blue-400 animate-pulse' : 'text-gray-600'} />
+              <Globe size={16} className={ingestStatus?.scraper?.running ? 'text-blue-400 animate-pulse' : 'text-gray-600'} />
               <div>
                 <p className="text-xs text-gray-500">Scraper</p>
-                {ingestStatus.scraper?.running ? (
+                {ingestStatus?.scraper?.running ? (
                   <p className="text-sm text-blue-300 font-medium">
                     Running — {ingestStatus.scraper.scraped}/{ingestStatus.scraper.total} done
                     {ingestStatus.scraper.failed > 0 && <span className="text-gray-500 ml-1">({ingestStatus.scraper.failed} failed)</span>}
                   </p>
                 ) : (
                   <p className="text-sm text-gray-400">
-                    {ingestStatus.scraper?.needs_scrape > 0
+                    {ingestStatus?.scraper?.needs_scrape > 0
                       ? <span className="text-yellow-400">{ingestStatus.scraper.needs_scrape} articles need scraping</span>
                       : <span className="text-green-400">All articles scraped</span>}
-                    {ingestStatus.scraper?.scraped > 0 && !ingestStatus.scraper.running && (
+                    {ingestStatus?.scraper?.scraped > 0 && !ingestStatus.scraper.running && (
                       <span className="text-gray-600 ml-2 text-xs">
                         Last run: {ingestStatus.scraper.scraped} scraped
                       </span>
@@ -185,10 +191,10 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="flex items-center gap-3 border-l border-gray-800 pl-6">
-              <Cpu size={16} className={ingestStatus.analysis?.needs_analysis > 0 ? 'text-purple-400 animate-pulse' : 'text-gray-600'} />
+              <Cpu size={16} className={ingestStatus?.analysis?.needs_analysis > 0 ? 'text-purple-400 animate-pulse' : 'text-gray-600'} />
               <div>
                 <p className="text-xs text-gray-500">Analysis Queue</p>
-                {ingestStatus.analysis?.needs_analysis > 0 ? (
+                {ingestStatus?.analysis?.needs_analysis > 0 ? (
                   <p className="text-sm text-purple-300 font-medium">
                     {ingestStatus.analysis.needs_analysis} articles pending analysis
                   </p>
@@ -197,8 +203,28 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
+            {queueStats && (
+              <div className="flex items-center gap-3 border-l border-gray-800 pl-6">
+                <Activity size={16} className={queueStats.active > 0 ? 'text-green-400 animate-pulse' : 'text-gray-600'} />
+                <div>
+                  <p className="text-xs text-gray-500">Celery Workers</p>
+                  {queueStats.workers?.length > 0 ? (
+                    <p className="text-sm text-green-300 font-medium">
+                      {queueStats.workers.length} worker{queueStats.workers.length !== 1 ? 's' : ''}
+                      {' · '}
+                      {queueStats.active > 0
+                        ? <span className="text-yellow-300">{queueStats.active} running</span>
+                        : <span className="text-gray-400">idle</span>}
+                      {queueStats.queued > 0 && <span className="text-gray-400 ml-1">· {queueStats.queued} queued</span>}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-600">No workers connected</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          {ingestStatus.scraper?.running && ingestStatus.scraper.total > 0 && (
+          {ingestStatus?.scraper?.running && ingestStatus.scraper.total > 0 && (
             <div className="mt-3">
               <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
                 <div
@@ -209,7 +235,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Stats cards */}
       <div className="grid grid-cols-4 gap-4">
