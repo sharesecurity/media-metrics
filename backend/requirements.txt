@@ -11,7 +11,7 @@ minio==7.2.9
 pandas==2.2.3
 numpy==1.26.4
 setuptools>=69.0
-textstat==0.7.3
+textstat>=0.7.5
 vaderSentiment==3.3.2
 requests==2.32.3
 beautifulsoup4==4.12.3
