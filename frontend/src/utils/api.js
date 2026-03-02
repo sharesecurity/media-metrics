@@ -15,16 +15,26 @@ export const runAnalysis = (article_id) => api.post('/analysis/run', { article_i
 export const runAllAnalysis = () => api.post('/analysis/run-all').then(r => r.data)
 export const getAnalysisResults = (article_id) => api.get(`/analysis/results/${article_id}`).then(r => r.data)
 export const getTrends = (params) => api.get('/analysis/trends', { params }).then(r => r.data)
+export const getTrendsBySource = (metric = 'political_lean') =>
+  api.get('/analysis/trends/by-source', { params: { metric } }).then(r => r.data)
 
 // Sources
 export const getSources = () => api.get('/sources/').then(r => r.data)
 
-// Search
+// Search — keyword
 export const searchArticles = (q, limit = 20) => api.get('/search/', { params: { q, limit } }).then(r => r.data)
 
+// Search — semantic (vector)
+export const semanticSearch = (q, limit = 15, source = null) => {
+  const params = { q, limit }
+  if (source) params.source = source
+  return api.get('/search/semantic', { params }).then(r => r.data)
+}
+
 // Ingest
-export const startIngest = (source = 'gdelt', limit = 100) =>
-  api.post('/ingest/start', { source, limit }).then(r => r.data)
+export const startIngest = (source = 'rss', limit = 20, sources = null) =>
+  api.post('/ingest/start', { source, limit, sources }).then(r => r.data)
+export const getIngestSources = () => api.get('/ingest/sources').then(r => r.data)
 
 // Chat
 export const askChat = (message, context = '') =>

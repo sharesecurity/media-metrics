@@ -32,11 +32,17 @@ reset:
 status:
 	docker compose ps
 
-## Ingest sample articles via API
+## Ingest embedded sample articles (48 articles, 7 stories, 8 outlets, Jan–Dec 2024)
 ingest:
 	curl -s -X POST http://localhost:8010/api/ingest/start \
 	  -H "Content-Type: application/json" \
-	  -d '{"source": "gdelt", "limit": 50}' | python3 -m json.tool
+	  -d '{"source": "embedded", "limit": 50}' | python3 -m json.tool
+
+## Ingest live articles via RSS feeds (requires internet)
+ingest-rss:
+	curl -s -X POST http://localhost:8010/api/ingest/start \
+	  -H "Content-Type: application/json" \
+	  -d '{"source": "rss", "limit": 15}' | python3 -m json.tool
 
 ## Trigger analysis of all unanalyzed articles
 analyze:

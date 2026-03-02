@@ -17,3 +17,6 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 python-multipart==0.0.12
 python-dotenv==1.0.1
+trafilatura==1.12.2
+lxml==5.3.0
+lxml_html_clean==0.4.1

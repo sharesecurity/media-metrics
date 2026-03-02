@@ -1,15 +1,19 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, RefreshCw } from 'lucide-react'
+import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Articles from './pages/Articles'
 import ArticleDetail from './pages/ArticleDetail'
 import BiasAnalysis from './pages/BiasAnalysis'
 import Chat from './pages/Chat'
+import Trends from './pages/Trends'
+import SemanticSearch from './pages/SemanticSearch'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/articles', icon: Newspaper, label: 'Articles' },
   { to: '/bias', icon: BarChart2, label: 'Bias Analysis' },
+  { to: '/trends', icon: TrendingUp, label: 'Trends' },
+  { to: '/search', icon: Search, label: 'Semantic Search' },
   { to: '/chat', icon: MessageSquare, label: 'AI Chat' },
 ]
 
@@ -49,7 +53,7 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-gray-800 text-xs text-gray-600 text-center">
-          v0.1.0 · deepseek-r1:8b
+          v0.2.0 · deepseek-r1:8b
         </div>
       </aside>
 
@@ -60,6 +64,8 @@ export default function App() {
           <Route path="/articles" element={<Articles />} />
           <Route path="/articles/:id" element={<ArticleDetail />} />
           <Route path="/bias" element={<BiasAnalysis />} />
+          <Route path="/trends" element={<Trends />} />
+          <Route path="/search" element={<SemanticSearch />} />
           <Route path="/chat" element={<Chat />} />
         </Routes>
       </main>

@@ -1,6 +1,7 @@
 """
 Bias Analysis Pipeline
 Uses local Ollama (deepseek-r1:8b) + VADER sentiment + textstat for readability.
+After analysis, generates a nomic-embed-text embedding and stores it in Qdrant.
 """
 
 import httpx
@@ -13,12 +14,12 @@ import textstat
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import select
 from app.config import settings
-from app.models import Article, AnalysisResult
+from app.models import Article, AnalysisResult, Source
 
 engine = create_async_engine(
     settings.database_url,
-    pool_pre_ping=True,       # re-validate connections before use
-    pool_recycle=300,         # recycle connections every 5 min
+    pool_pre_ping=True,
+    pool_recycle=300,
     pool_size=5,
     max_overflow=10,
 )
@@ -26,12 +27,12 @@ AsyncSession_ = async_sessionmaker(engine, expire_on_commit=False)
 
 vader = SentimentIntensityAnalyzer()
 
-BIAS_PROMPT = """Analyze the political bias of this news article. 
+BIAS_PROMPT = """Analyze the political bias of this news article.
 Rate it on a scale from -1.0 (strongly left-leaning) to 1.0 (strongly right-leaning), where 0.0 is neutral/balanced.
 
 Consider:
 - Word choice and loaded language
-- Which perspectives are given more prominence  
+- Which perspectives are given more prominence
 - What facts are emphasized vs omitted
 - Whose voices are quoted
 - Framing of issues
@@ -50,9 +51,7 @@ Article:
 
 def parse_json_from_llm(text: str) -> dict:
     """Extract JSON from LLM output, handling <think> tags from deepseek-r1."""
-    # Remove <think>...</think> blocks (deepseek-r1 reasoning)
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    # Find JSON block
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
         try:
@@ -61,16 +60,44 @@ def parse_json_from_llm(text: str) -> dict:
             print(f"[Bias] JSON parse error: {e}, raw text: {match.group()[:200]}")
     return {}
 
+async def _generate_embedding(text: str) -> list[float] | None:
+    """Generate a nomic-embed-text embedding via Ollama. Returns None on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{settings.ollama_base_url}/api/embeddings",
+                json={"model": settings.ollama_embed_model, "prompt": text[:8192]},
+            )
+            if r.status_code == 200:
+                return r.json().get("embedding")
+            print(f"[Bias] Embedding non-200: {r.status_code}")
+    except Exception as e:
+        print(f"[Bias] Embedding error: {e}")
+    return None
+
+async def _upsert_to_qdrant(article_id: str, embedding: list[float], payload: dict):
+    """Upsert article embedding + metadata to Qdrant. Silently fails if Qdrant unavailable."""
+    try:
+        from app.services.vector_store import ensure_collection, upsert_article
+        await ensure_collection()
+        await upsert_article(article_id, embedding, payload)
+        print(f"[Bias] ✓ Qdrant upsert for {article_id}")
+    except Exception as e:
+        print(f"[Bias] Qdrant upsert failed (non-critical): {e}")
+
 async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
-    """Run full bias analysis on an article."""
+    """Run full bias analysis on an article, then index it in Qdrant."""
     async with AsyncSession_() as db:
         result = await db.execute(
-            select(Article).where(Article.id == uuid.UUID(article_id))
+            select(Article, Source.name.label("source_name"))
+            .outerjoin(Source, Article.source_id == Source.id)
+            .where(Article.id == uuid.UUID(article_id))
         )
-        article = result.scalar_one_or_none()
-        if not article:
+        row = result.one_or_none()
+        if not row:
             print(f"[Bias] Article {article_id} not found")
             return
+        article, source_name = row
 
         text = article.raw_text or article.title or ""
         if not text.strip():
@@ -100,8 +127,8 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
         # 3. LLM Bias Analysis (Ollama deepseek-r1:8b)
         llm_result = {}
         try:
-            truncated_text = text[:3000]  # keep within context window
-            payload = {
+            truncated_text = text[:3000]
+            payload_llm = {
                 "model": settings.ollama_model,
                 "messages": [{"role": "user", "content": BIAS_PROMPT + truncated_text}],
                 "stream": False,
@@ -110,7 +137,7 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
                 resp = await client.post(
                     f"{settings.ollama_base_url}/api/chat",
-                    json=payload
+                    json=payload_llm
                 )
                 print(f"[Bias] Ollama response status: {resp.status_code}")
                 if resp.status_code == 200:
@@ -126,7 +153,8 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
             print(f"[Bias] LLM error ({type(e).__name__}): {e!r}")
             print(traceback.format_exc())
 
-        # 4. Store results
+        # 4. Store results in PostgreSQL
+        political_lean = llm_result.get("political_lean")
         try:
             analysis = AnalysisResult(
                 article_id=uuid.UUID(article_id),
@@ -136,7 +164,7 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
                 sentiment_score=sentiment_score,
                 sentiment_label=sentiment_label,
                 subjectivity=None,
-                political_lean=llm_result.get("political_lean"),
+                political_lean=political_lean,
                 political_confidence=llm_result.get("confidence"),
                 primary_topic=llm_result.get("primary_topic"),
                 reading_level=reading_level,
@@ -152,3 +180,23 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
         except Exception as e:
             print(f"[Bias] DB save error ({type(e).__name__}): {e}")
             await db.rollback()
+            return  # If we can't save analysis, skip Qdrant too
+
+        # 5. Generate embedding and index in Qdrant
+        embed_text = f"{article.title}\n\n{text[:2000]}"
+        embedding = await _generate_embedding(embed_text)
+        if embedding:
+            qdrant_payload = {
+                "article_id": article_id,
+                "title": article.title,
+                "source_name": source_name or "",
+                "section": article.section or "",
+                "published_at": article.published_at.isoformat() if article.published_at else None,
+                "political_lean": political_lean,
+                "sentiment_score": sentiment_score,
+                "sentiment_label": sentiment_label,
+                "primary_topic": llm_result.get("primary_topic", ""),
+            }
+            await _upsert_to_qdrant(article_id, embedding, qdrant_payload)
+        else:
+            print(f"[Bias] Skipping Qdrant (no embedding generated)")

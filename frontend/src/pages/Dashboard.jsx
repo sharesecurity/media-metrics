@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { getArticleStats, getSources, startIngest, runAllAnalysis } from '../utils/api'
-import { RefreshCw, Play, Database } from 'lucide-react'
+import { Play, Database, FileText } from 'lucide-react'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -39,13 +39,28 @@ export default function Dashboard() {
 
   const handleIngest = async () => {
     setIngesting(true)
-    setMsg('Ingesting sample articles...')
+    setMsg('Fetching live articles from RSS feeds across 10 major outlets...')
     try {
-      await startIngest('gdelt', 50)
-      setMsg('Ingest started! Refresh in a few seconds.')
-      setTimeout(() => refetchStats(), 3000)
+      await startIngest('rss', 15)
+      setMsg('RSS ingest started! Articles from NYT, Fox, Reuters, AP, BBC & more are being fetched. Refresh in ~30 seconds.')
+      setTimeout(() => refetchStats(), 8000)
+      setTimeout(() => refetchStats(), 20000)
     } catch (e) {
       setMsg('Ingest failed: ' + e.message)
+    }
+    setIngesting(false)
+  }
+
+  const handleLoadSamples = async () => {
+    setIngesting(true)
+    setMsg('Loading 48 sample articles across 7 stories and 8 outlets (Jan–Dec 2024)...')
+    try {
+      await startIngest('embedded', 50)
+      setMsg('Sample data loaded! 48 articles across climate, immigration, healthcare, AI regulation, gun control, budget, and SCOTUS stories. Click "Analyze All" to run bias analysis.')
+      setTimeout(() => refetchStats(), 2000)
+      setTimeout(() => refetchStats(), 5000)
+    } catch (e) {
+      setMsg('Sample load failed: ' + e.message)
     }
     setIngesting(false)
   }
@@ -73,12 +88,22 @@ export default function Dashboard() {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={handleLoadSamples}
+            disabled={ingesting}
+            className="btn-ghost border border-gray-700 flex items-center gap-2 text-sm"
+            title="Load 48 sample articles across 7 topics (Jan–Dec 2024)"
+          >
+            <FileText size={14} />
+            {ingesting ? 'Loading...' : 'Load Samples'}
+          </button>
+          <button
             onClick={handleIngest}
             disabled={ingesting}
             className="btn-primary flex items-center gap-2 text-sm"
+            title="Fetch live articles from RSS feeds"
           >
             <Database size={14} />
-            {ingesting ? 'Ingesting...' : 'Ingest Articles'}
+            {ingesting ? 'Ingesting...' : 'Ingest RSS'}
           </button>
           <button
             onClick={handleAnalyzeAll}

@@ -88,8 +88,8 @@ async def get_trends(
     metric: str = "political_lean",
     db: AsyncSession = Depends(get_db)
 ):
-    """Get trend data for a metric over time."""
-    from sqlalchemy import func, and_
+    """Get trend data for a metric over time, optionally filtered to one source."""
+    from sqlalchemy import func
     from app.models import Source
 
     q = (
@@ -110,5 +110,41 @@ async def get_trends(
     rows = result.all()
     return [
         {"month": r.month.isoformat() if r.month else None, "value": r.avg_value, "count": r.count}
+        for r in rows
+    ]
+
+@router.get("/trends/by-source")
+async def get_trends_by_source(
+    metric: str = "political_lean",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Trend data grouped by both month and source — one data point per source per month.
+    Use this to draw a multi-line chart with one line per news outlet.
+    """
+    from sqlalchemy import func
+    from app.models import Source
+
+    result = await db.execute(
+        select(
+            func.date_trunc('month', Article.published_at).label('month'),
+            Source.name.label('source_name'),
+            func.avg(getattr(AnalysisResult, metric)).label('avg_value'),
+            func.count().label('count')
+        )
+        .join(AnalysisResult, Article.id == AnalysisResult.article_id)
+        .join(Source, Article.source_id == Source.id)
+        .where(Article.published_at.isnot(None))
+        .group_by('month', Source.name)
+        .order_by('month', Source.name)
+    )
+    rows = result.all()
+    return [
+        {
+            "month": r.month.isoformat() if r.month else None,
+            "source_name": r.source_name,
+            "value": float(r.avg_value) if r.avg_value is not None else None,
+            "count": r.count,
+        }
         for r in rows
     ]
