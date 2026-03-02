@@ -94,6 +94,29 @@ services:
       timeout: 5s
       retries: 5
 
+  celery-beat:
+    build: ./backend
+    container_name: mm_celery_beat
+    restart: unless-stopped
+    command: celery -A app.worker beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://media:media_metrics_2024@postgres:5432/media_metrics
+      QDRANT_HOST: qdrant
+      MINIO_HOST: minio
+      OLLAMA_URL: http://host.docker.internal:11434
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   celery-worker:
     build: ./backend
     container_name: mm_celery_worker

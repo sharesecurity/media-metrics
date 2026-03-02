@@ -63,10 +63,10 @@ async def start_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
     return {"error": f"Unknown source: {req.source}"}
 
 async def _queue_unanalyzed():
-    """Queue bias analysis for all articles that don't yet have analysis results."""
+    """Dispatch bias-analysis tasks for all articles without results.
+    Uses Celery if available; falls back to direct sequential execution."""
     from app.core.database import AsyncSessionLocal
     from app.models import Article, AnalysisResult
-    from app.pipelines.bias_analyzer import analyze_article_bias
     from sqlalchemy import select
     async with AsyncSessionLocal() as db:
         analyzed_ids = select(AnalysisResult.article_id)
@@ -74,9 +74,15 @@ async def _queue_unanalyzed():
             select(Article.id).where(~Article.id.in_(analyzed_ids)).limit(200)
         )
         ids = [str(r.id) for r in result.all()]
-    print(f"[Ingest] Auto-queuing analysis for {len(ids)} new articles")
-    for aid in ids:
-        await analyze_article_bias(aid, "full")
+    print(f"[Ingest] Dispatching analysis for {len(ids)} new articles")
+    try:
+        from app.tasks import analyze_article_task
+        for aid in ids:
+            analyze_article_task.delay(aid, "full")
+    except Exception:
+        from app.pipelines.bias_analyzer import analyze_article_bias
+        for aid in ids:
+            await analyze_article_bias(aid, "full")
 
 async def _scrape_then_analyze(limit: int, concurrency: int):
     await scrape_missing_articles(limit, 150, concurrency)
