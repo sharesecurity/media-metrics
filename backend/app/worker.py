@@ -30,4 +30,6 @@ celery_app.conf.update(
     task_acks_late=True,
     # Keep results for 24 hours
     result_expires=86400,
+    # Suppress Celery 6.0 deprecation warning
+    broker_connection_retry_on_startup=True,
 )
