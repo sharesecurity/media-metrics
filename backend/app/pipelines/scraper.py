@@ -16,6 +16,16 @@ from app.models import Article
 engine = create_async_engine(settings.database_url)
 AsyncSession_ = async_sessionmaker(engine, expire_on_commit=False)
 
+# Global status tracker — read by ingest status endpoint
+SCRAPER_STATUS: dict = {
+    "running": False,
+    "scraped": 0,
+    "failed": 0,
+    "total": 0,
+    "started_at": None,
+    "finished_at": None,
+}
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -77,6 +87,7 @@ async def scrape_missing_articles(
     Find all articles with no raw_text and scrape them.
     Returns a summary of results.
     """
+    global SCRAPER_STATUS
     print(f"[Scraper] Starting — limit={limit}, concurrency={concurrency}")
 
     # Get articles needing text (also grab title so we can detect placeholders)
@@ -93,11 +104,22 @@ async def scrape_missing_articles(
     print(f"[Scraper] Found {total} articles without text")
 
     if total == 0:
+        SCRAPER_STATUS.update({"running": False, "scraped": 0, "failed": 0, "total": 0,
+                               "started_at": None, "finished_at": None})
         return {"scraped": 0, "failed": 0, "total_candidates": 0}
 
     scraped = 0
     failed = 0
     semaphore = asyncio.Semaphore(concurrency)
+
+    SCRAPER_STATUS.update({
+        "running": True,
+        "scraped": 0,
+        "failed": 0,
+        "total": total,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
+    })
 
     async def scrape_one(article_id, url: str, current_title: str = ""):
         nonlocal scraped, failed
@@ -125,15 +147,24 @@ async def scrape_missing_articles(
                     await db.execute(update(Article).where(Article.id == article_id).values(**values))
                     await db.commit()
                 scraped += 1
-                if scraped % 10 == 0:
+                SCRAPER_STATUS["scraped"] = scraped
+                if scraped % 5 == 0:
                     print(f"[Scraper] Progress: {scraped}/{total} scraped")
             else:
                 failed += 1
+                SCRAPER_STATUS["failed"] = failed
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=25) as client:
         tasks = [scrape_one(art_id, url, title or "") for art_id, url, title in articles_to_scrape]
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    SCRAPER_STATUS.update({
+        "running": False,
+        "scraped": scraped,
+        "failed": failed,
+        "total": total,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    })
     print(f"[Scraper] Done. Scraped={scraped}, Failed/Short={failed}")
     return {
         "scraped": scraped,

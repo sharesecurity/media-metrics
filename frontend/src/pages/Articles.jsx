@@ -27,6 +27,8 @@ export default function Articles() {
   const [sourceFilter, setSourceFilter] = useState('')
   const [leanFilter, setLeanFilter] = useState('all') // all | left | center | right
   const [analyzedOnly, setAnalyzedOnly] = useState(false)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
 
   const { data: sources } = useQuery({ queryKey: ['sources'], queryFn: getSources })
@@ -52,6 +54,8 @@ export default function Articles() {
     if (leanFilter === 'left' && (a.political_lean == null || a.political_lean >= -0.2)) return false
     if (leanFilter === 'center' && (a.political_lean == null || a.political_lean < -0.2 || a.political_lean > 0.2)) return false
     if (leanFilter === 'right' && (a.political_lean == null || a.political_lean <= 0.2)) return false
+    if (dateFrom && a.published_at && new Date(a.published_at) < new Date(dateFrom)) return false
+    if (dateTo && a.published_at && new Date(a.published_at) > new Date(dateTo + 'T23:59:59')) return false
     return true
   })
 
@@ -110,6 +114,33 @@ export default function Articles() {
         >
           Analyzed only
         </button>
+      </div>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-500 text-xs">Date:</span>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={e => setDateFrom(e.target.value)}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+          title="From date"
+        />
+        <span className="text-gray-600">–</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={e => setDateTo(e.target.value)}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+          title="To date"
+        />
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo('') }}
+            className="text-gray-500 hover:text-gray-300 text-xs px-1"
+            title="Clear date filter"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* Table */}
