@@ -5,6 +5,7 @@ version: "3.9"
 #   mm_qdrant    → 6333/6334 (free)
 #   mm_minio     → 9010 API, 9011 console
 #   mm_backend   → 8010
+#   mm_grafana   → 3001
 
 services:
   postgres:
@@ -75,6 +76,27 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mm_grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: media_metrics_2024
+      GF_INSTALL_PLUGINS: grafana-postgresql-datasource
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   qdrant_data:
+  grafana_data:

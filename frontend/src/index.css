@@ -23,6 +23,10 @@ body {
   @apply btn bg-transparent hover:bg-gray-800 text-gray-300;
 }
 
+.input {
+  @apply bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors;
+}
+
 /* Bias score bar */
 .bias-bar {
   @apply h-3 rounded-full relative bg-gray-800;

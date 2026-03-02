@@ -96,14 +96,16 @@ async def scrape_missing_articles(
             text = await scrape_article(client, url)
             if text and len(text) >= min_text_length:
                 async with AsyncSession_() as db:
-                    await db.execute(
-                        update(Article)
-                        .where(Article.id == article_id)
-                        .values(
-                            raw_text=text[:80000],
-                            word_count=len(text.split()),
-                        )
-                    )
+                    values = {"raw_text": text[:80000], "word_count": len(text.split())}
+                    try:
+                        from app.services.minio_service import store_article_text, ensure_bucket
+                        await ensure_bucket()
+                        minio_key = await store_article_text(str(article_id), text[:200000])
+                        if minio_key:
+                            values = {"minio_key": minio_key, "raw_text": None, "word_count": len(text.split())}
+                    except Exception as me:
+                        print(f"[Scraper] MinIO store failed (non-critical): {me}")
+                    await db.execute(update(Article).where(Article.id == article_id).values(**values))
                     await db.commit()
                 scraped += 1
                 if scraped % 10 == 0:

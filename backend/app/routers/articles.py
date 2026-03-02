@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, update
 from app.database import get_db
 from app.models import Article, Source, Author, AnalysisResult
 from pydantic import BaseModel
@@ -93,6 +93,51 @@ async def article_stats(db: AsyncSession = Depends(get_db)):
         "by_source": [{"source": r.name, "count": r.count} for r in by_source]
     }
 
+@router.post("/migrate-to-minio")
+async def migrate_to_minio(
+    background_tasks: BackgroundTasks,
+    limit: int = 500,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Batch migrate article raw_text from Postgres into MinIO.
+    Sets minio_key on each article and clears raw_text from Postgres.
+    Runs in background. Safe to call multiple times (skips already-migrated).
+    """
+    result = await db.execute(
+        select(Article.id)
+        .where(Article.raw_text.isnot(None))
+        .where(Article.minio_key.is_(None))
+        .limit(limit)
+    )
+    ids = [str(r.id) for r in result.all()]
+    background_tasks.add_task(_do_migrate, ids)
+    return {"status": "started", "count": len(ids)}
+
+async def _do_migrate(article_ids: list[str]):
+    from app.services.minio_service import store_article_text, ensure_bucket
+    from app.core.database import AsyncSessionLocal
+
+    await ensure_bucket()
+    async with AsyncSessionLocal() as db:
+        for article_id in article_ids:
+            try:
+                result = await db.execute(select(Article).where(Article.id == uuid.UUID(article_id)))
+                article = result.scalar_one_or_none()
+                if not article or not article.raw_text:
+                    continue
+                key = await store_article_text(article_id, article.raw_text)
+                if key:
+                    await db.execute(
+                        update(Article)
+                        .where(Article.id == uuid.UUID(article_id))
+                        .values(minio_key=key, raw_text=None)
+                    )
+                    await db.commit()
+            except Exception as e:
+                print(f"[Migrate] Error for {article_id}: {e}")
+                await db.rollback()
+
 @router.get("/{article_id}")
 async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -108,11 +153,21 @@ async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
     )
     analyses = analysis.scalars().all()
 
+    # Fetch text: MinIO first, fall back to Postgres raw_text
+    text = article.raw_text
+    if article.minio_key and not text:
+        try:
+            from app.services.minio_service import get_article_text
+            text = await get_article_text(article.minio_key)
+        except Exception as e:
+            print(f"[Articles] MinIO fetch failed: {e}")
+
     return {
         "id": str(article.id),
         "title": article.title,
         "url": article.url,
-        "raw_text": article.raw_text,
+        "raw_text": text,
+        "minio_key": article.minio_key,
         "published_at": article.published_at,
         "section": article.section,
         "word_count": article.word_count,

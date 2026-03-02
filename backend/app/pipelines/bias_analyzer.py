@@ -99,7 +99,16 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
             return
         article, source_name = row
 
-        text = article.raw_text or article.title or ""
+        # Prefer MinIO text, fall back to Postgres raw_text, then title
+        text = article.raw_text or ""
+        if article.minio_key and not text:
+            try:
+                from app.services.minio_service import get_article_text
+                text = await get_article_text(article.minio_key) or ""
+            except Exception as e:
+                print(f"[Bias] MinIO fetch failed: {e}")
+        if not text:
+            text = article.title or ""
         if not text.strip():
             print(f"[Bias] Article {article_id} has no text")
             return

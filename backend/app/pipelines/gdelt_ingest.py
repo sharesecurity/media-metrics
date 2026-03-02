@@ -130,8 +130,10 @@ async def ingest_gdelt_sample(limit: int = 100, date: Optional[str] = None):
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             name = zf.namelist()[0]
             with zf.open(name) as f:
-                df = pd.read_csv(f, sep='\t', header=None, on_bad_lines='skip',
-                                 usecols=[0,1,3,4,7,9], nrows=limit * 5)
+                # GKG 1.0 columns:
+                #   0=DATE, 3=THEMES, 9=SOURCES (domains), 10=SOURCEURLS (URLs)
+                # Read all cols up to 11 to safely access col 10
+                df = pd.read_csv(f, sep='\t', header=None, on_bad_lines='skip', nrows=limit * 20)
 
         print(f"[GDELT] Downloaded {len(df)} rows from GKG")
 
@@ -141,46 +143,55 @@ async def ingest_gdelt_sample(limit: int = 100, date: Optional[str] = None):
                 if ingested >= limit:
                     break
                 try:
-                    url_val = str(row.iloc[5]) if len(row) > 5 else ""
-                    if not url_val or url_val == "nan" or not url_val.startswith("http"):
+                    # GKG 1.0: col 9 = SOURCES (domains), col 10 = SOURCEURLS
+                    if len(row) <= 10:
                         continue
-
-                    domain = extract_domain(url_val)
-                    if not domain:
-                        continue
-
-                    source_name = KNOWN_SOURCES.get(domain)
-                    if not source_name:
-                        continue
-
-                    existing = await db.execute(select(Article).where(Article.url == url_val))
-                    if existing.scalar_one_or_none():
-                        continue
-
-                    source_id = await get_or_create_source(db, domain, source_name)
+                    sources_str = str(row.iloc[9]) if not pd.isna(row.iloc[9]) else ""
+                    urls_str = str(row.iloc[10]) if not pd.isna(row.iloc[10]) else ""
+                    themes_str = str(row.iloc[3]) if not pd.isna(row.iloc[3]) else ""
                     date_val = str(row.iloc[0])
-                    try:
-                        pub_date = datetime.strptime(date_val[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
-                    except Exception:
-                        pub_date = None
 
-                    themes = str(row.iloc[3]) if len(row) > 3 else ""
-                    tags = [t.strip() for t in themes.split(";") if t.strip()][:10]
+                    source_domains = [d.strip() for d in sources_str.split(";") if d.strip()]
+                    source_urls = [u.strip() for u in urls_str.split(";") if u.strip()]
 
-                    article = Article(
-                        source_id=source_id,
-                        url=url_val,
-                        title=f"Article from {source_name} ({pub_date.date() if pub_date else 'unknown'})",
-                        published_at=pub_date,
-                        tags=tags,
-                        section=_guess_section(tags),
-                        gdelt_id=date_val,
-                    )
-                    db.add(article)
-                    await db.commit()
-                    ingested += 1
-                    if ingested % 10 == 0:
-                        print(f"[GDELT] Ingested {ingested} articles")
+                    # Pair each domain with its URL and filter to known outlets
+                    for domain, url_val in zip(source_domains, source_urls):
+                        if ingested >= limit:
+                            break
+                        domain = domain.replace("www.", "")
+                        source_name = KNOWN_SOURCES.get(domain)
+                        if not source_name:
+                            continue
+                        if not url_val.startswith("http"):
+                            continue
+
+                        existing = await db.execute(select(Article).where(Article.url == url_val))
+                        if existing.scalar_one_or_none():
+                            continue
+
+                        source_id = await get_or_create_source(db, domain, source_name)
+                        try:
+                            pub_date = datetime.strptime(date_val[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
+                        except Exception:
+                            pub_date = None
+
+                        tags = [t.strip() for t in themes_str.split(";") if t.strip()][:10]
+
+                        article = Article(
+                            source_id=source_id,
+                            url=url_val,
+                            title=f"Article from {source_name} ({pub_date.date() if pub_date else 'unknown'})",
+                            published_at=pub_date,
+                            tags=tags,
+                            section=_guess_section(tags),
+                            gdelt_id=date_val,
+                        )
+                        db.add(article)
+                        await db.commit()
+                        ingested += 1
+                        if ingested % 10 == 0:
+                            print(f"[GDELT] Ingested {ingested} articles")
+
                 except Exception as e:
                     print(f"[GDELT] Row error: {e}")
                     await db.rollback()

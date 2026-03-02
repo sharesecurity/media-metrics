@@ -39,3 +39,15 @@ export const getIngestSources = () => api.get('/ingest/sources').then(r => r.dat
 // Chat
 export const askChat = (message, context = '') =>
   api.post('/chat/ask', { message, context }).then(r => r.data)
+
+// Bias Methods
+export const getBiasMethods = () => api.get('/bias-methods/').then(r => r.data)
+export const getBiasMethod = (id) => api.get(`/bias-methods/${id}`).then(r => r.data)
+export const createBiasMethod = (body) => api.post('/bias-methods/', body).then(r => r.data)
+export const updateBiasMethod = (id, body) => api.put(`/bias-methods/${id}`, body).then(r => r.data)
+export const deleteBiasMethod = (id) => api.delete(`/bias-methods/${id}`).then(r => r.data)
+export const toggleBiasMethod = (id) => api.post(`/bias-methods/${id}/toggle`).then(r => r.data)
+
+// MinIO migration
+export const migrateToMinio = (limit = 500) =>
+  api.post('/articles/migrate-to-minio', null, { params: { limit } }).then(r => r.data)

@@ -1,15 +1,85 @@
-# Files/dirs Claude should skip when reading context
-node_modules/
+# .claudeignore — tells Claude what NOT to read to conserve context
+# ---------------------------------------------------------------
+
+# --- Python / build artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 .venv/
 venv/
-__pycache__/
-docker/volumes/
-data/raw/
-data/sample/*.jsonl
-data/sample/*.csv
-*.log
+env/
+*.egg-info/
 dist/
 build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+*.coverage
+
+# --- Node / frontend build ---
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+*.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# --- Large data files (NEVER read these) ---
+data/
+/Volumes/LabStorage/media_metrics/
+*.jsonl
+*.parquet
+*.csv
+*.tsv
+*.ndjson
+*.arrow
+*.feather
+
+# --- Logs ---
+*.log
+logs/
+*.out
+
+# --- Docker & infra ---
+docker/volumes/
 .git/
-/Volumes/LabStorage/media_metrics/raw_articles/
-/Volumes/LabStorage/media_metrics/embeddings/
+*.tar
+*.tar.gz
+*.zip
+
+# --- Secrets ---
+.env
+*.pem
+*.key
+*.cert
+
+# --- Compiled / binary ---
+*.so
+*.dylib
+*.bin
+*.pkl
+*.pt
+*.onnx
+*.h5
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------
+# KEY FILES TO ALWAYS READ (overrides above if tool supports it):
+#   PROJECT.MD
+#   Makefile
+#   docker-compose.yml
+#   backend/app/core/config.py
+#   backend/app/main.py
+# ---------------------------------------------------------------

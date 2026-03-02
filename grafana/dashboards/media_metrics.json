@@ -1,0 +1,197 @@
+{
+  "title": "Media Metrics Overview",
+  "uid": "media-metrics-main",
+  "version": 1,
+  "schemaVersion": 38,
+  "refresh": "1m",
+  "time": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Articles",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) AS value FROM articles",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } }
+    },
+    {
+      "id": 2,
+      "title": "Analyzed Articles",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT COUNT(DISTINCT article_id) AS value FROM analysis_results",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+    },
+    {
+      "id": 3,
+      "title": "News Sources",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT COUNT(*) AS value FROM sources",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "purple", "value": null }] } } }
+    },
+    {
+      "id": 4,
+      "title": "Avg Political Lean",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT ROUND(AVG(political_lean)::numeric, 3) AS value FROM analysis_results WHERE political_lean IS NOT NULL",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [
+            { "color": "blue", "value": -1 },
+            { "color": "green", "value": -0.1 },
+            { "color": "red", "value": 0.1 }
+          ]},
+          "min": -1, "max": 1
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Political Lean by Source",
+      "type": "barchart",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT s.name AS source, ROUND(AVG(ar.political_lean)::numeric, 3) AS avg_lean FROM sources s JOIN articles a ON a.source_id = s.id JOIN analysis_results ar ON ar.article_id = a.id WHERE ar.political_lean IS NOT NULL GROUP BY s.name ORDER BY avg_lean",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "xField": "source", "orientation": "horizontal" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-BlYlRd" },
+          "min": -1, "max": 1,
+          "custom": { "fillOpacity": 80 }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Avg Sentiment by Source",
+      "type": "barchart",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT s.name AS source, ROUND(AVG(ar.sentiment_score)::numeric, 3) AS avg_sentiment FROM sources s JOIN articles a ON a.source_id = s.id JOIN analysis_results ar ON ar.article_id = a.id WHERE ar.sentiment_score IS NOT NULL GROUP BY s.name ORDER BY avg_sentiment",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "xField": "source", "orientation": "horizontal" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-RdYlGn" },
+          "min": -1, "max": 1,
+          "custom": { "fillOpacity": 80 }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Political Lean Over Time (by Source)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 9 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT DATE_TRUNC('month', a.published_at) AS time, s.name AS metric, AVG(ar.political_lean) AS value FROM articles a JOIN sources s ON s.id = a.source_id JOIN analysis_results ar ON ar.article_id = a.id WHERE a.published_at IS NOT NULL AND ar.political_lean IS NOT NULL GROUP BY 1, 2 ORDER BY 1",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 5 }, "min": -1, "max": 1 } }
+    },
+    {
+      "id": 8,
+      "title": "Articles Ingested Over Time",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT DATE_TRUNC('day', published_at) AS time, COUNT(*) AS value FROM articles WHERE published_at IS NOT NULL GROUP BY 1 ORDER BY 1",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "tooltip": { "mode": "single" } },
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 20 } } }
+    },
+    {
+      "id": 9,
+      "title": "Average Reading Level by Source",
+      "type": "barchart",
+      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT s.name AS source, ROUND(AVG(ar.reading_level)::numeric, 1) AS avg_grade FROM sources s JOIN articles a ON a.source_id = s.id JOIN analysis_results ar ON ar.article_id = a.id WHERE ar.reading_level IS NOT NULL GROUP BY s.name ORDER BY avg_grade DESC",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "xField": "source", "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "color": { "mode": "continuous-GrYlRd" }, "custom": { "fillOpacity": 70 } } }
+    },
+    {
+      "id": 10,
+      "title": "Articles by Section",
+      "type": "piechart",
+      "gridPos": { "x": 0, "y": 28, "w": 8, "h": 7 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT COALESCE(section, 'unknown') AS label, COUNT(*) AS value FROM articles GROUP BY section ORDER BY value DESC",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": { "displayLabels": ["name", "percent"] }
+    },
+    {
+      "id": 11,
+      "title": "Sentiment Distribution",
+      "type": "histogram",
+      "gridPos": { "x": 8, "y": 28, "w": 8, "h": 7 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT sentiment_score AS value FROM analysis_results WHERE sentiment_score IS NOT NULL",
+        "format": "table",
+        "refId": "A"
+      }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 60 } } }
+    },
+    {
+      "id": 12,
+      "title": "Political Lean Distribution",
+      "type": "histogram",
+      "gridPos": { "x": 16, "y": 28, "w": 8, "h": 7 },
+      "datasource": { "uid": "media_metrics_pg" },
+      "targets": [{
+        "rawSql": "SELECT political_lean AS value FROM analysis_results WHERE political_lean IS NOT NULL",
+        "format": "table",
+        "refId": "A"
+      }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 60 }, "color": { "mode": "continuous-BlYlRd" } } }
+    }
+  ]
+}

@@ -323,12 +323,30 @@ async def ingest_rss_feeds(
                             title=art["title"][:500],
                             published_at=art.get("published_at") or datetime.now(timezone.utc),
                             section=guess_section(art["title"], art["url"]),
-                            raw_text=text[:50000],  # cap at 50k chars
+                            raw_text=text[:50000],
                             word_count=len(text.split()),
                             tags=[guess_section(art["title"], art["url"])],
                         )
                         db.add(article)
                         await db.commit()
+                        await db.refresh(article)
+
+                        # Store full text in MinIO, clear from Postgres
+                        try:
+                            from app.services.minio_service import store_article_text, ensure_bucket
+                            from sqlalchemy import update as sql_update
+                            await ensure_bucket()
+                            minio_key = await store_article_text(str(article.id), text[:200000])
+                            if minio_key:
+                                await db.execute(
+                                    sql_update(Article)
+                                    .where(Article.id == article.id)
+                                    .values(minio_key=minio_key, raw_text=None)
+                                )
+                                await db.commit()
+                        except Exception as me:
+                            print(f"[RSS] MinIO store failed (non-critical): {me}")
+
                         source_count += 1
                         total_ingested += 1
                         

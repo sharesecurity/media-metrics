@@ -1,0 +1,20 @@
+apiVersion: 1
+
+datasources:
+  - name: MediaMetrics
+    type: postgres
+    uid: media_metrics_pg
+    url: postgres:5432
+    user: media
+    secureJsonData:
+      password: media_metrics_2024
+    jsonData:
+      database: media_metrics
+      sslmode: disable
+      maxOpenConns: 5
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+      postgresVersion: 1600
+      timescaledb: false
+    isDefault: true
+    editable: true

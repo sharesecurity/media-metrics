@@ -3,11 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.database import init_db
-from app.routers import articles, analysis, sources, authors, ingest, search, chat
+from app.routers import articles, analysis, sources, authors, ingest, search, chat, bias_methods
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Ensure MinIO bucket exists on startup (non-critical)
+    try:
+        from app.services.minio_service import ensure_bucket
+        await ensure_bucket()
+    except Exception as e:
+        print(f"[Startup] MinIO bucket init failed (non-critical): {e}")
     yield
 
 app = FastAPI(
@@ -32,6 +38,7 @@ app.include_router(authors.router, prefix="/api/authors", tags=["authors"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(bias_methods.router, prefix="/api/bias-methods", tags=["bias-methods"])
 
 @app.get("/health")
 async def health():
