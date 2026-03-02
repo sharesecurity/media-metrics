@@ -15,7 +15,13 @@ from sqlalchemy import select
 from app.config import settings
 from app.models import Article, AnalysisResult
 
-engine = create_async_engine(settings.database_url)
+engine = create_async_engine(
+    settings.database_url,
+    pool_pre_ping=True,       # re-validate connections before use
+    pool_recycle=300,         # recycle connections every 5 min
+    pool_size=5,
+    max_overflow=10,
+)
 AsyncSession_ = async_sessionmaker(engine, expire_on_commit=False)
 
 vader = SentimentIntensityAnalyzer()
@@ -51,8 +57,8 @@ def parse_json_from_llm(text: str) -> dict:
     if match:
         try:
             return json.loads(match.group())
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Bias] JSON parse error: {e}, raw text: {match.group()[:200]}")
     return {}
 
 async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
@@ -86,7 +92,8 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
         try:
             reading_level = textstat.flesch_kincaid_grade(text)
             avg_sentence_length = textstat.avg_sentence_length(text)
-        except Exception:
+        except Exception as e:
+            print(f"[Bias] Readability error: {e}")
             reading_level = None
             avg_sentence_length = None
 
@@ -99,38 +106,47 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
                 "messages": [{"role": "user", "content": BIAS_PROMPT + truncated_text}],
                 "stream": False,
             }
+            print(f"[Bias] Calling Ollama at {settings.ollama_base_url} with model {settings.ollama_model}")
             async with httpx.AsyncClient(timeout=180) as client:
                 resp = await client.post(
                     f"{settings.ollama_base_url}/api/chat",
                     json=payload
                 )
+                print(f"[Bias] Ollama response status: {resp.status_code}")
                 if resp.status_code == 200:
                     data = resp.json()
                     raw_content = data.get("message", {}).get("content", "")
+                    print(f"[Bias] LLM raw (first 300 chars): {raw_content[:300]}")
                     llm_result = parse_json_from_llm(raw_content)
-                    print(f"[Bias] LLM result: {llm_result}")
+                    print(f"[Bias] LLM parsed result: {llm_result}")
+                else:
+                    print(f"[Bias] Ollama non-200: {resp.status_code} {resp.text[:200]}")
         except Exception as e:
-            print(f"[Bias] LLM error: {e}")
+            print(f"[Bias] LLM error ({type(e).__name__}): {e}")
 
         # 4. Store results
-        analysis = AnalysisResult(
-            article_id=uuid.UUID(article_id),
-            analyzed_at=datetime.now(timezone.utc),
-            model_used=f"vader+{settings.ollama_model}",
-            analysis_type="full",
-            sentiment_score=sentiment_score,
-            sentiment_label=sentiment_label,
-            subjectivity=None,
-            political_lean=llm_result.get("political_lean"),
-            political_confidence=llm_result.get("confidence"),
-            primary_topic=llm_result.get("primary_topic"),
-            reading_level=reading_level,
-            avg_sentence_length=avg_sentence_length,
-            raw_analysis={
-                "vader": vader_scores,
-                "llm": llm_result,
-            }
-        )
-        db.add(analysis)
-        await db.commit()
-        print(f"[Bias] Analysis saved for {article_id}")
+        try:
+            analysis = AnalysisResult(
+                article_id=uuid.UUID(article_id),
+                analyzed_at=datetime.now(timezone.utc),
+                model_used=f"vader+{settings.ollama_model}",
+                analysis_type="full",
+                sentiment_score=sentiment_score,
+                sentiment_label=sentiment_label,
+                subjectivity=None,
+                political_lean=llm_result.get("political_lean"),
+                political_confidence=llm_result.get("confidence"),
+                primary_topic=llm_result.get("primary_topic"),
+                reading_level=reading_level,
+                avg_sentence_length=avg_sentence_length,
+                raw_analysis={
+                    "vader": vader_scores,
+                    "llm": llm_result,
+                }
+            )
+            db.add(analysis)
+            await db.commit()
+            print(f"[Bias] ✓ Analysis saved for {article_id}")
+        except Exception as e:
+            print(f"[Bias] DB save error ({type(e).__name__}): {e}")
+            await db.rollback()
