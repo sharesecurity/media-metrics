@@ -1,9 +1,13 @@
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 from app.pipelines.gdelt_ingest import ingest_gdelt_sample
 from app.pipelines.rss_ingest import ingest_rss_feeds, RSS_FEEDS
-from app.pipelines.scraper import scrape_missing_articles
+from app.pipelines.scraper import scrape_missing_articles, SCRAPER_STATUS
 from typing import Optional, List
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from app.database import get_db
+from app.models import Article, AnalysisResult
 
 router = APIRouter()
 
@@ -92,9 +96,28 @@ async def _ingest_then_analyze_embedded(limit: int):
     await _queue_unanalyzed()
 
 @router.get("/status")
-async def ingest_status():
-    """Simple status check — in future hook into celery."""
-    return {"status": "idle"}
+async def ingest_status(db: AsyncSession = Depends(get_db)):
+    """Return scraper + analysis pipeline status."""
+    # Count articles without text (still need scraping)
+    needs_scrape = await db.execute(
+        select(func.count(Article.id))
+        .where(Article.raw_text.is_(None))
+        .where(Article.minio_key.is_(None))
+        .where(Article.url.isnot(None))
+    )
+    needs_scrape_count = needs_scrape.scalar() or 0
+
+    # Count unanalyzed articles
+    analyzed_ids = select(AnalysisResult.article_id)
+    needs_analysis = await db.execute(
+        select(func.count(Article.id)).where(~Article.id.in_(analyzed_ids))
+    )
+    needs_analysis_count = needs_analysis.scalar() or 0
+
+    return {
+        "scraper": {**SCRAPER_STATUS, "needs_scrape": needs_scrape_count},
+        "analysis": {"needs_analysis": needs_analysis_count},
+    }
 
 @router.get("/sources")
 async def list_sources():

@@ -1,16 +1,22 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from app.database import get_db
-from app.models import Author, Article
+from app.models import Author, Article, AnalysisResult, Source
 from app.services.demographics import infer_demographics
+from typing import Optional
 
 router = APIRouter()
 
 @router.get("/")
 async def list_authors(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Author).order_by(Author.name).limit(500))
-    authors = result.scalars().all()
+    result = await db.execute(
+        select(Author, Source.name.label("source_name"))
+        .outerjoin(Source, Author.source_id == Source.id)
+        .order_by(Author.name)
+        .limit(500)
+    )
+    rows = result.all()
     return [
         {
             "id": str(a.id),
@@ -18,8 +24,67 @@ async def list_authors(db: AsyncSession = Depends(get_db)):
             "gender": a.gender,
             "ethnicity": a.ethnicity,
             "source_id": str(a.source_id) if a.source_id else None,
+            "source_name": source_name,
         }
-        for a in authors
+        for a, source_name in rows
+    ]
+
+@router.get("/comparison")
+async def author_comparison(
+    source_id: Optional[str] = Query(None),
+    min_articles: int = Query(1),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return authors with avg political lean across their analyzed articles.
+    Useful for side-by-side comparison across authors and outlets.
+    """
+    import uuid
+
+    # avg lean, article count, analyzed count per author
+    q = (
+        select(
+            Author.id,
+            Author.name,
+            Author.gender,
+            Author.ethnicity,
+            Source.name.label("source_name"),
+            func.count(Article.id).label("article_count"),
+            func.count(AnalysisResult.id).label("analyzed_count"),
+            func.avg(AnalysisResult.political_lean).label("avg_lean"),
+            func.avg(AnalysisResult.sentiment_score).label("avg_sentiment"),
+        )
+        .outerjoin(Source, Author.source_id == Source.id)
+        .outerjoin(Article, Article.author_id == Author.id)
+        .outerjoin(AnalysisResult, AnalysisResult.article_id == Article.id)
+        .group_by(Author.id, Author.name, Author.gender, Author.ethnicity, Source.name)
+        .having(func.count(Article.id) >= min_articles)
+        .order_by(func.avg(AnalysisResult.political_lean))
+    )
+
+    if source_id:
+        try:
+            sid = uuid.UUID(source_id)
+            q = q.where(Author.source_id == sid)
+        except ValueError:
+            pass
+
+    result = await db.execute(q)
+    rows = result.all()
+
+    return [
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "gender": r.gender,
+            "ethnicity": r.ethnicity,
+            "source_name": r.source_name,
+            "article_count": r.article_count,
+            "analyzed_count": r.analyzed_count,
+            "avg_lean": round(float(r.avg_lean), 3) if r.avg_lean is not None else None,
+            "avg_sentiment": round(float(r.avg_sentiment), 3) if r.avg_sentiment is not None else None,
+        }
+        for r in rows
     ]
 
 @router.get("/demographics/summary")
@@ -92,18 +157,21 @@ async def _do_infer(author_ids: list[str]):
 async def get_author(author_id: str, db: AsyncSession = Depends(get_db)):
     import uuid
     result = await db.execute(
-        select(Author).where(Author.id == uuid.UUID(author_id))
+        select(Author, Source.name.label("source_name"))
+        .outerjoin(Source, Author.source_id == Source.id)
+        .where(Author.id == uuid.UUID(author_id))
     )
-    author = result.scalar_one_or_none()
-    if not author:
+    row = result.first()
+    if not row:
         from fastapi import HTTPException
         raise HTTPException(404, "Author not found")
+    author, source_name = row
 
     # Count articles
     art_result = await db.execute(
-        select(Article).where(Article.author_id == author.id)
+        select(func.count(Article.id)).where(Article.author_id == author.id)
     )
-    articles = art_result.scalars().all()
+    article_count = art_result.scalar() or 0
 
     return {
         "id": str(author.id),
@@ -111,5 +179,6 @@ async def get_author(author_id: str, db: AsyncSession = Depends(get_db)):
         "gender": author.gender,
         "ethnicity": author.ethnicity,
         "source_id": str(author.source_id) if author.source_id else None,
-        "article_count": len(articles),
+        "source_name": source_name,
+        "article_count": article_count,
     }

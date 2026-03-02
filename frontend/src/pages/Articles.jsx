@@ -25,12 +25,16 @@ const BiasBar = ({ value }) => {
 export default function Articles() {
   const [q, setQ] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
+  const [leanFilter, setLeanFilter] = useState('all') // all | left | center | right
+  const [analyzedOnly, setAnalyzedOnly] = useState(false)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
 
   const { data: sources } = useQuery({ queryKey: ['sources'], queryFn: getSources })
   const { data: articles, isLoading } = useQuery({
     queryKey: ['articles', sourceFilter],
-    queryFn: () => getArticles({ source_id: sourceFilter || undefined, limit: 100 }),
+    queryFn: () => getArticles({ source_id: sourceFilter || undefined, limit: 200 }),
   })
   const { data: searchResults } = useQuery({
     queryKey: ['search', debouncedQ],
@@ -44,7 +48,16 @@ export default function Articles() {
     window._searchTimer = setTimeout(() => setDebouncedQ(val), 400)
   }
 
-  const displayArticles = debouncedQ.length > 2 ? searchResults : articles
+  const baseArticles = debouncedQ.length > 2 ? searchResults : articles
+  const displayArticles = (baseArticles || []).filter(a => {
+    if (analyzedOnly && a.political_lean == null) return false
+    if (leanFilter === 'left' && (a.political_lean == null || a.political_lean >= -0.2)) return false
+    if (leanFilter === 'center' && (a.political_lean == null || a.political_lean < -0.2 || a.political_lean > 0.2)) return false
+    if (leanFilter === 'right' && (a.political_lean == null || a.political_lean <= 0.2)) return false
+    if (dateFrom && a.published_at && new Date(a.published_at) < new Date(dateFrom)) return false
+    if (dateTo && a.published_at && new Date(a.published_at) > new Date(dateTo + 'T23:59:59')) return false
+    return true
+  })
 
   const sentimentColor = (s) => {
     if (s == null) return 'text-gray-600'
@@ -57,12 +70,14 @@ export default function Articles() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Articles</h1>
-        <span className="text-sm text-gray-500">{displayArticles?.length ?? 0} articles</span>
+        <span className="text-sm text-gray-500">
+          {displayArticles.length} {(leanFilter !== 'all' || analyzedOnly) ? `of ${baseArticles?.length ?? 0} ` : ''}articles
+        </span>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-wrap gap-3">
+        <div className="relative flex-1 min-w-48">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
             type="text"
@@ -82,6 +97,50 @@ export default function Articles() {
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
+        <div className="flex rounded-lg overflow-hidden border border-gray-700 text-sm">
+          {[['all','All Lean'],['left','Left'],['center','Center'],['right','Right']].map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setLeanFilter(val)}
+              className={`px-3 py-2 transition-colors ${leanFilter === val ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setAnalyzedOnly(v => !v)}
+          className={`px-3 py-2 rounded-lg border text-sm transition-colors ${analyzedOnly ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}
+        >
+          Analyzed only
+        </button>
+      </div>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-500 text-xs">Date:</span>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={e => setDateFrom(e.target.value)}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+          title="From date"
+        />
+        <span className="text-gray-600">–</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={e => setDateTo(e.target.value)}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+          title="To date"
+        />
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo('') }}
+            className="text-gray-500 hover:text-gray-300 text-xs px-1"
+            title="Clear date filter"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -89,7 +148,7 @@ export default function Articles() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800">
-              {['Title', 'Source', 'Published', 'Sentiment', 'Political Lean', ''].map(h => (
+              {['Title', 'Source', 'Author', 'Published', 'Sentiment', 'Political Lean', ''].map(h => (
                 <th key={h} className="text-left text-xs text-gray-500 uppercase tracking-wider px-4 py-3 font-medium">
                   {h}
                 </th>
@@ -98,10 +157,10 @@ export default function Articles() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={6} className="text-center py-12 text-gray-600">Loading...</td></tr>
+              <tr><td colSpan={7} className="text-center py-12 text-gray-600">Loading...</td></tr>
             )}
             {!isLoading && !displayArticles?.length && (
-              <tr><td colSpan={6} className="text-center py-12 text-gray-600">
+              <tr><td colSpan={7} className="text-center py-12 text-gray-600">
                 No articles yet. Go to Dashboard and click "Ingest Articles".
               </td></tr>
             )}
@@ -113,6 +172,9 @@ export default function Articles() {
                   </Link>
                 </td>
                 <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{a.source_name || '—'}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs max-w-[120px] truncate" title={a.author_name || ''}>
+                  {a.author_name || <span className="text-gray-700">—</span>}
+                </td>
                 <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
                   {a.published_at ? new Date(a.published_at).toLocaleDateString() : '—'}
                 </td>

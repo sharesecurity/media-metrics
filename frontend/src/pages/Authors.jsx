@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { Users, RefreshCw, User } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { getAuthors, getDemographicsSummary, inferAllDemographics } from '../utils/api'
 
 const GENDER_COLORS = {
@@ -165,6 +166,7 @@ export default function Authors() {
             <thead>
               <tr className="border-b border-gray-800 text-gray-400 text-left">
                 <th className="px-4 py-3">Author</th>
+                <th className="px-4 py-3">Outlet</th>
                 <th className="px-4 py-3">Gender</th>
                 <th className="px-4 py-3">Ethnicity</th>
               </tr>
@@ -173,11 +175,12 @@ export default function Authors() {
               {filtered.map(author => (
                 <tr key={author.id} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
+                    <Link to={`/authors/${author.id}`} className="flex items-center gap-2 hover:text-blue-400">
                       <User size={14} className="text-gray-500" />
                       <span className="text-white">{author.name}</span>
-                    </div>
+                    </Link>
                   </td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">{author.source_name || '—'}</td>
                   <td className="px-4 py-3">
                     {author.gender ? (
                       <span

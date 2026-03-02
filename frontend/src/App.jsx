@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users } from 'lucide-react'
+import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users, GitCompare } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Articles from './pages/Articles'
 import ArticleDetail from './pages/ArticleDetail'
@@ -9,6 +9,8 @@ import Trends from './pages/Trends'
 import SemanticSearch from './pages/SemanticSearch'
 import BiasMethodEditor from './pages/BiasMethodEditor'
 import Authors from './pages/Authors'
+import AuthorDetail from './pages/AuthorDetail'
+import AuthorComparison from './pages/AuthorComparison'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -17,6 +19,7 @@ const NAV = [
   { to: '/trends', icon: TrendingUp, label: 'Trends' },
   { to: '/search', icon: Search, label: 'Semantic Search' },
   { to: '/authors', icon: Users, label: 'Authors' },
+  { to: '/author-compare', icon: GitCompare, label: 'Author Compare' },
   { to: '/chat', icon: MessageSquare, label: 'AI Chat' },
   { to: '/bias-methods', icon: Settings, label: 'Bias Methods' },
 ]
@@ -57,7 +60,7 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-gray-800 text-xs text-gray-600 text-center">
-          v0.2.0 · deepseek-r1:8b
+          v0.3.0 · deepseek-r1:8b
         </div>
       </aside>
 
@@ -71,6 +74,8 @@ export default function App() {
           <Route path="/trends" element={<Trends />} />
           <Route path="/search" element={<SemanticSearch />} />
           <Route path="/authors" element={<Authors />} />
+          <Route path="/authors/:id" element={<AuthorDetail />} />
+          <Route path="/author-compare" element={<AuthorComparison />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/bias-methods" element={<BiasMethodEditor />} />
         </Routes>

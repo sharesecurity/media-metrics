@@ -116,11 +116,19 @@ export default function ArticleDetail() {
       </div>
 
       {/* Metadata */}
-      <div className="flex gap-4 text-sm text-gray-500">
+      <div className="flex flex-wrap gap-3 text-sm text-gray-500">
         <span>{article.source_name || 'Unknown source'}</span>
         {article.published_at && <span>· {new Date(article.published_at).toLocaleDateString()}</span>}
         {article.word_count && <span>· {article.word_count} words</span>}
         {article.section && <span>· {article.section}</span>}
+        {article.author_name && (
+          <span>·{' '}
+            {article.author_id
+              ? <Link to={`/authors/${article.author_id}`} className="text-blue-400 hover:text-blue-300">{article.author_name}</Link>
+              : article.author_name
+            }
+          </span>
+        )}
       </div>
 
       {/* Analysis trigger */}
