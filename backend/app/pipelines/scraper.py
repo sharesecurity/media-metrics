@@ -27,8 +27,8 @@ HEADERS = {
 }
 
 
-def extract_text(html: bytes, url: str) -> str | None:
-    """Use trafilatura to extract clean article text from raw HTML."""
+def extract_text_and_meta(html: bytes, url: str) -> tuple[str | None, str | None]:
+    """Use trafilatura to extract article text and title."""
     try:
         text = trafilatura.extract(
             html,
@@ -38,26 +38,34 @@ def extract_text(html: bytes, url: str) -> str | None:
             no_fallback=False,
             favor_recall=True,
         )
-        return text
+        meta = trafilatura.extract_metadata(html, default_url=url)
+        title = meta.title if meta and meta.title else None
+        return text, title
     except Exception as e:
         print(f"[Scraper] trafilatura error for {url}: {e}")
-        return None
+        return None, None
 
 
-async def scrape_article(client: httpx.AsyncClient, url: str) -> str | None:
-    """Fetch a URL and extract article text."""
+def extract_text(html: bytes, url: str) -> str | None:
+    """Backward-compatible wrapper — returns text only."""
+    text, _ = extract_text_and_meta(html, url)
+    return text
+
+
+async def scrape_article(client: httpx.AsyncClient, url: str) -> tuple[str | None, str | None]:
+    """Fetch a URL and extract (text, title)."""
     try:
         resp = await client.get(url, follow_redirects=True, timeout=20)
         if resp.status_code != 200:
             print(f"[Scraper] HTTP {resp.status_code} for {url}")
-            return None
-        return extract_text(resp.content, url)
+            return None, None
+        return extract_text_and_meta(resp.content, url)
     except httpx.TimeoutException:
         print(f"[Scraper] Timeout: {url}")
-        return None
+        return None, None
     except Exception as e:
         print(f"[Scraper] Error fetching {url}: {e}")
-        return None
+        return None, None
 
 
 async def scrape_missing_articles(
@@ -71,11 +79,12 @@ async def scrape_missing_articles(
     """
     print(f"[Scraper] Starting — limit={limit}, concurrency={concurrency}")
 
-    # Get articles needing text
+    # Get articles needing text (also grab title so we can detect placeholders)
     async with AsyncSession_() as db:
         result = await db.execute(
-            select(Article.id, Article.url)
+            select(Article.id, Article.url, Article.title)
             .where(Article.raw_text.is_(None))
+            .where(Article.minio_key.is_(None))
             .limit(limit)
         )
         articles_to_scrape = result.all()
@@ -90,19 +99,27 @@ async def scrape_missing_articles(
     failed = 0
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def scrape_one(article_id, url: str):
+    async def scrape_one(article_id, url: str, current_title: str = ""):
         nonlocal scraped, failed
         async with semaphore:
-            text = await scrape_article(client, url)
+            text, scraped_title = await scrape_article(client, url)
             if text and len(text) >= min_text_length:
                 async with AsyncSession_() as db:
                     values = {"raw_text": text[:80000], "word_count": len(text.split())}
+                    # Update placeholder titles (e.g. "Article from CNN (2026-03-01)")
+                    if scraped_title and (
+                        not current_title
+                        or current_title.startswith("Article from ")
+                        or current_title.startswith("Untitled")
+                    ):
+                        values["title"] = scraped_title[:500]
                     try:
                         from app.services.minio_service import store_article_text, ensure_bucket
                         await ensure_bucket()
                         minio_key = await store_article_text(str(article_id), text[:200000])
                         if minio_key:
-                            values = {"minio_key": minio_key, "raw_text": None, "word_count": len(text.split())}
+                            values["minio_key"] = minio_key
+                            values["raw_text"] = None
                     except Exception as me:
                         print(f"[Scraper] MinIO store failed (non-critical): {me}")
                     await db.execute(update(Article).where(Article.id == article_id).values(**values))
@@ -114,7 +131,7 @@ async def scrape_missing_articles(
                 failed += 1
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=25) as client:
-        tasks = [scrape_one(art_id, url) for art_id, url in articles_to_scrape]
+        tasks = [scrape_one(art_id, url, title or "") for art_id, url, title in articles_to_scrape]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     print(f"[Scraper] Done. Scraped={scraped}, Failed/Short={failed}")

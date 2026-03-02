@@ -31,12 +31,16 @@ async def start_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
             "outlets": req.sources or list(RSS_FEEDS.keys()),
         }
     elif req.source == "scrape":
-        background_tasks.add_task(scrape_missing_articles, req.limit, 150, req.concurrency)
+        if req.auto_analyze:
+            background_tasks.add_task(_scrape_then_analyze, req.limit, req.concurrency)
+        else:
+            background_tasks.add_task(scrape_missing_articles, req.limit, 150, req.concurrency)
         return {
             "status": "started",
             "source": "scrape",
             "limit": req.limit,
             "concurrency": req.concurrency,
+            "auto_analyze": req.auto_analyze,
             "message": "Scraping full text for articles missing raw_text. Check backend logs for progress.",
         }
     elif req.source == "gdelt":
@@ -69,6 +73,10 @@ async def _queue_unanalyzed():
     print(f"[Ingest] Auto-queuing analysis for {len(ids)} new articles")
     for aid in ids:
         await analyze_article_bias(aid, "full")
+
+async def _scrape_then_analyze(limit: int, concurrency: int):
+    await scrape_missing_articles(limit, 150, concurrency)
+    await _queue_unanalyzed()
 
 async def _ingest_then_analyze_rss(limit: int, sources):
     await ingest_rss_feeds(limit, sources)
