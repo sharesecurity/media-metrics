@@ -10,15 +10,9 @@ qdrant-client==1.11.3
 minio==7.2.9
 pandas==2.2.3
 numpy==1.26.4
-spacy==3.7.6
 textstat==0.7.3
 vaderSentiment==3.3.2
-transformers==4.45.2
-torch==2.4.1
-scikit-learn==1.5.2
 requests==2.32.3
 beautifulsoup4==4.12.3
 python-multipart==0.0.12
 python-dotenv==1.0.1
-celery==5.4.0
-redis==5.1.1
