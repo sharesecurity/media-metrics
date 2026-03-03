@@ -6,6 +6,7 @@ Worker startup:
   celery -A app.worker worker --loglevel=info --concurrency=1 -Q default
 """
 import os
+from datetime import timedelta
 from celery import Celery
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -36,12 +37,13 @@ celery_app.conf.update(
 
 # ── Beat schedule ─────────────────────────────────────────────────────────────
 # Runs in the celery-beat container; worker picks up and executes the tasks.
-from celery.schedules import crontab  # noqa: E402
+# Interval controlled by RSS_INGEST_INTERVAL_HOURS env var (default: 6).
+_rss_interval_hours = float(os.getenv("RSS_INGEST_INTERVAL_HOURS", "6"))
 
 celery_app.conf.beat_schedule = {
-    # Fetch RSS feeds every 6 hours and queue analysis for any new articles
+    # Fetch RSS feeds on a configurable interval and queue analysis for new articles
     "scheduled-rss-ingest": {
         "task": "app.tasks.scheduled_rss_ingest",
-        "schedule": crontab(minute=0, hour="*/6"),  # 00:00, 06:00, 12:00, 18:00
+        "schedule": timedelta(hours=_rss_interval_hours),
     },
 }

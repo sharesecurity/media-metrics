@@ -108,6 +108,7 @@ services:
       MINIO_HOST: minio
       OLLAMA_URL: http://host.docker.internal:11434
       REDIS_URL: redis://redis:6379/0
+      RSS_INGEST_INTERVAL_HOURS: ${RSS_INGEST_INTERVAL_HOURS:-6}
     depends_on:
       postgres:
         condition: service_healthy

@@ -28,6 +28,7 @@ export default function Dashboard() {
   const [scraping, setScraping] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [kaggleIngesting, setKaggleIngesting] = useState(false)
+  const [kaggleOffset, setKaggleOffset] = useState(0)
   const [msg, setMsg] = useState('')
 
   const { data: stats, refetch: refetchStats } = useQuery({
@@ -63,14 +64,16 @@ export default function Dashboard() {
 
   const handleKaggleIngest = async (version = 'headlines', limit = 5000) => {
     setKaggleIngesting(true)
+    const offset = version === 'headlines' ? kaggleOffset : 0
     const label = version === 'headlines' ? '4.4M Headlines dataset' : `All the News ${version.toUpperCase()}`
-    setMsg(`Starting Kaggle ingest: ${limit.toLocaleString()} headlines from ${label}...`)
+    setMsg(`Starting Kaggle ingest: rows ${offset.toLocaleString()}–${(offset + limit).toLocaleString()} from ${label}...`)
     try {
-      const res = await startKaggleIngest({ version, limit, auto_analyze: false })
+      const res = await startKaggleIngest({ version, limit, offset, auto_analyze: false })
       if (res.error) {
         setMsg(`Kaggle: ${res.error}`)
       } else {
-        setMsg(`Kaggle ingest started! Inserting up to ${limit.toLocaleString()} headlines in background. Run "Scrape Text" afterward to fetch full article content.`)
+        if (version === 'headlines') setKaggleOffset(prev => prev + limit)
+        setMsg(`Kaggle ingest started! Reading rows ${offset.toLocaleString()}–${(offset + limit).toLocaleString()}. Run "Scrape Text" afterward to fetch full article content.`)
         setTimeout(() => refetchStats(), 15000)
         setTimeout(() => refetchStats(), 60000)
       }
@@ -335,10 +338,22 @@ export default function Dashboard() {
                 )
               })}
             </div>
-            <p className="text-gray-500 text-xs">
-              Headlines dataset: no body text — ingest headlines, then run "Scrape Text" to fetch full articles from URLs.
-              Call repeatedly with increasing offsets to page through the full dataset.
-            </p>
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>
+                Headlines dataset: no body text — ingest, then "Scrape Text" to fetch full articles.
+              </span>
+              {kaggleStatus?.versions?.headlines?.ready && (
+                <span className="flex items-center gap-2 shrink-0 ml-4">
+                  Row position: <span className="text-gray-300 font-mono">{kaggleOffset.toLocaleString()}</span> / ~4,405,397
+                  {kaggleOffset > 0 && (
+                    <button
+                      onClick={() => setKaggleOffset(0)}
+                      className="text-gray-600 hover:text-gray-400 underline ml-1"
+                    >reset</button>
+                  )}
+                </span>
+              )}
+            </div>
           </div>
         ) : (
           <div className="text-sm text-gray-400 space-y-2">
