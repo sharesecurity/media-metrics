@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users, GitCompare, Building2, User } from 'lucide-react'
+import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users, GitCompare, Building2, User, Layers } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Articles from './pages/Articles'
 import ArticleDetail from './pages/ArticleDetail'
@@ -15,10 +15,12 @@ import Organizations from './pages/Organizations'
 import OrganizationDetail from './pages/OrganizationDetail'
 import People from './pages/People'
 import PersonDetail from './pages/PersonDetail'
+import StoryClusters from './pages/StoryClusters'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/articles', icon: Newspaper, label: 'Articles' },
+  { to: '/clusters', icon: Layers, label: 'Story Clusters' },
   { to: '/bias', icon: BarChart2, label: 'Bias Analysis' },
   { to: '/trends', icon: TrendingUp, label: 'Trends' },
   { to: '/search', icon: Search, label: 'Semantic Search' },
@@ -45,7 +47,7 @@ export default function App() {
           <p className="text-xs text-gray-500 mt-1">News Bias Analysis</p>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {NAV.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
@@ -66,7 +68,7 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-gray-800 text-xs text-gray-600 text-center">
-          v0.4.0 · deepseek-r1:8b
+          v0.5.0 · deepseek-r1:8b
         </div>
       </aside>
 
@@ -76,6 +78,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/articles" element={<Articles />} />
           <Route path="/articles/:id" element={<ArticleDetail />} />
+          <Route path="/clusters" element={<StoryClusters />} />
           <Route path="/bias" element={<BiasAnalysis />} />
           <Route path="/trends" element={<Trends />} />
           <Route path="/search" element={<SemanticSearch />} />

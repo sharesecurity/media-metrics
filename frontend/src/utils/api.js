@@ -89,3 +89,8 @@ export const startKaggleIngest = (opts = {}) =>
   api.post('/ingest/kaggle', { version: 'headlines', limit: 5000, auto_analyze: false, min_year: 2015, ...opts }).then(r => r.data)
 export const startScrape = (limit = 50, auto_analyze = false) =>
   api.post('/ingest/start', { source: 'scrape', limit, auto_analyze }).then(r => r.data)
+
+// Story Clusters
+export const getClusters = (params = {}) => api.get('/clusters/', { params }).then(r => r.data)
+export const getCluster = (id) => api.get(`/clusters/${id}`).then(r => r.data)
+export const runClustering = (params = {}) => api.post('/clusters/run', null, { params }).then(r => r.data)
