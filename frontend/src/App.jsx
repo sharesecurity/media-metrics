@@ -1,5 +1,5 @@
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users, GitCompare } from 'lucide-react'
+import { Routes, Route, NavLink } from 'react-router-dom'
+import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users, GitCompare, Building2, User } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Articles from './pages/Articles'
 import ArticleDetail from './pages/ArticleDetail'
@@ -11,6 +11,10 @@ import BiasMethodEditor from './pages/BiasMethodEditor'
 import Authors from './pages/Authors'
 import AuthorDetail from './pages/AuthorDetail'
 import AuthorComparison from './pages/AuthorComparison'
+import Organizations from './pages/Organizations'
+import OrganizationDetail from './pages/OrganizationDetail'
+import People from './pages/People'
+import PersonDetail from './pages/PersonDetail'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -20,6 +24,8 @@ const NAV = [
   { to: '/search', icon: Search, label: 'Semantic Search' },
   { to: '/authors', icon: Users, label: 'Authors' },
   { to: '/author-compare', icon: GitCompare, label: 'Author Compare' },
+  { to: '/organizations', icon: Building2, label: 'Organizations' },
+  { to: '/people', icon: User, label: 'People' },
   { to: '/chat', icon: MessageSquare, label: 'AI Chat' },
   { to: '/bias-methods', icon: Settings, label: 'Bias Methods' },
 ]
@@ -60,7 +66,7 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-gray-800 text-xs text-gray-600 text-center">
-          v0.3.0 · deepseek-r1:8b
+          v0.4.0 · deepseek-r1:8b
         </div>
       </aside>
 
@@ -76,6 +82,10 @@ export default function App() {
           <Route path="/authors" element={<Authors />} />
           <Route path="/authors/:id" element={<AuthorDetail />} />
           <Route path="/author-compare" element={<AuthorComparison />} />
+          <Route path="/organizations" element={<Organizations />} />
+          <Route path="/organizations/:id" element={<OrganizationDetail />} />
+          <Route path="/people" element={<People />} />
+          <Route path="/people/:id" element={<PersonDetail />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/bias-methods" element={<BiasMethodEditor />} />
         </Routes>
