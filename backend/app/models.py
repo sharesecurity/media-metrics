@@ -1,8 +1,103 @@
-from sqlalchemy import Column, String, Float, Integer, Text, ARRAY, Boolean, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, Text, ARRAY, Boolean, ForeignKey, Date
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TIMESTAMPTZ
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import uuid
+
+class Location(Base):
+    __tablename__ = "locations"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    city = Column(Text)
+    state = Column(Text)
+    country = Column(Text, nullable=False, default="US")
+    lat = Column(Float)
+    lng = Column(Float)
+    display_name = Column(Text)
+    meta = Column(JSONB)
+
+
+class Organization(Base):
+    """Rich entity for news outlets, wire services, parent companies, investors."""
+    __tablename__ = "organizations"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False, unique=True)
+    slug = Column(Text, unique=True)
+    org_type = Column(Text)        # 'publisher', 'wire_service', 'parent_company', 'investor'
+    domain = Column(Text)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"))
+    founding_year = Column(Integer)
+    dissolved_year = Column(Integer)
+    political_lean = Column(Float)
+    country = Column(Text, default="US")
+    parent_org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"))
+    wikipedia_url = Column(Text)
+    wikidata_id = Column(Text)
+    meta = Column(JSONB)
+    created_at = Column(TIMESTAMPTZ)
+
+
+class Person(Base):
+    """Rich entity for journalists, editors, executives."""
+    __tablename__ = "people"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    full_name = Column(Text, nullable=False)
+    slug = Column(Text, unique=True)
+    gender = Column(Text)
+    ethnicity = Column(Text)
+    birth_year = Column(Integer)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"))
+    byline_variants = Column(ARRAY(Text))
+    wikipedia_url = Column(Text)
+    wikidata_id = Column(Text)
+    meta = Column(JSONB)
+    created_at = Column(TIMESTAMPTZ)
+    affiliations = relationship("PersonOrganization", back_populates="person")
+
+
+class PersonOrganization(Base):
+    """Employment / affiliation history with temporal dimension."""
+    __tablename__ = "person_organization"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    person_id = Column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
+    role = Column(Text, nullable=False)  # 'reporter', 'editor', 'columnist', etc.
+    beat = Column(Text)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id"))
+    valid_from = Column(Date)
+    valid_to = Column(Date)    # null = current position
+    confidence = Column(Float, default=1.0)
+    source = Column(Text)      # 'byline', 'linkedin', 'manual', 'inferred'
+    meta = Column(JSONB)
+    person = relationship("Person", back_populates="affiliations")
+    organization = relationship("Organization")
+
+
+class ArticleProvenance(Base):
+    """Story attribution chain — tracks where a story originated."""
+    __tablename__ = "article_provenance"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id"), nullable=False)
+    provenance_type = Column(Text, nullable=False)  # 'original', 'wire_pickup', 'syndicated', 'press_release'
+    wire_service_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"))
+    source_article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id"))
+    confidence = Column(Float, nullable=False)
+    detection_method = Column(Text)   # 'explicit_attribution', 'embedding_similarity', 'llm_inference'
+    attribution_text = Column(Text)   # raw text that signaled this: "(AP)", "According to Reuters..."
+    similarity_score = Column(Float)
+    detected_at = Column(TIMESTAMPTZ)
+    meta = Column(JSONB)
+    article = relationship("Article", foreign_keys=[article_id], back_populates="provenance")
+    wire_service = relationship("Organization", foreign_keys=[wire_service_id])
+
+
+class ArticleAuthor(Base):
+    """Multi-author support junction table."""
+    __tablename__ = "article_authors"
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id"), primary_key=True)
+    person_id = Column(UUID(as_uuid=True), ForeignKey("people.id"), primary_key=True)
+    author_order = Column(Integer, default=1)
+    person = relationship("Person")
+
 
 class Source(Base):
     __tablename__ = "sources"
@@ -13,6 +108,7 @@ class Source(Base):
     political_lean = Column(Float)
     ownership = Column(Text)
     founded_year = Column(Integer)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"))  # bridge to organizations
     created_at = Column(TIMESTAMPTZ)
     articles = relationship("Article", back_populates="source")
 
@@ -23,6 +119,7 @@ class Author(Base):
     source_id = Column(UUID(as_uuid=True), ForeignKey("sources.id"))
     gender = Column(Text)
     ethnicity = Column(Text)
+    person_id = Column(UUID(as_uuid=True), ForeignKey("people.id"))  # bridge to people
     created_at = Column(TIMESTAMPTZ)
     articles = relationship("Article", back_populates="author")
 
@@ -46,6 +143,7 @@ class Article(Base):
     source = relationship("Source", back_populates="articles")
     author = relationship("Author", back_populates="articles")
     analysis_results = relationship("AnalysisResult", back_populates="article")
+    provenance = relationship("ArticleProvenance", foreign_keys="ArticleProvenance.article_id", back_populates="article")
 
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
