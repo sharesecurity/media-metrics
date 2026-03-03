@@ -190,3 +190,28 @@ class BiasMethod(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(TS)
     modified_at = Column(TS)
+
+
+class StoryCluster(Base):
+    __tablename__ = "story_clusters"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    representative_id = Column(UUID(as_uuid=True), ForeignKey("articles.id"), nullable=True)
+    topic_label = Column(Text)
+    article_count = Column(Integer, default=0)
+    avg_lean = Column(Float)
+    avg_sentiment = Column(Float)
+    source_count = Column(Integer)
+    date_start = Column(TS)
+    date_end = Column(TS)
+    similarity_threshold = Column(Float, default=0.78)
+    created_at = Column(TS)
+    updated_at = Column(TS)
+    members = relationship("StoryClusterArticle", back_populates="cluster", cascade="all, delete-orphan")
+
+
+class StoryClusterArticle(Base):
+    __tablename__ = "story_cluster_articles"
+    cluster_id = Column(UUID(as_uuid=True), ForeignKey("story_clusters.id", ondelete="CASCADE"), primary_key=True)
+    article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True)
+    similarity_score = Column(Float)
+    cluster = relationship("StoryCluster", back_populates="members")
