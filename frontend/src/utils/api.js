@@ -97,3 +97,9 @@ export const getClusters = (params = {}) => api.get('/clusters/', { params }).th
 export const getCluster = (id) => api.get(`/clusters/${id}`).then(r => r.data)
 export const runClustering = (params = {}) => api.post('/clusters/run', null, { params }).then(r => r.data)
 export const getClusterForArticle = (article_id) => api.get(`/clusters/by-article/${article_id}`).then(r => r.data)
+
+// Settings
+export const getSettings = () => api.get('/settings/').then(r => r.data)
+export const updateLogSettings = (body) => api.post('/settings/log', body).then(r => r.data)
+export const scaleCelery = (concurrency) => api.post('/settings/celery/scale', { concurrency }).then(r => r.data)
+export const getCeleryStatus = () => api.get('/settings/celery/status').then(r => r.data)

@@ -78,6 +78,7 @@ services:
     volumes:
       - ./backend:/app
       - /Volumes/LabStorage/media_metrics/raw_articles:/Volumes/LabStorage/media_metrics/raw_articles:ro
+      - mm_logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -123,7 +124,7 @@ services:
     build: ./backend
     container_name: mm_celery_worker
     restart: unless-stopped
-    command: celery -A app.worker worker --loglevel=info --concurrency=1 -Q default
+    command: celery -A app.worker worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-1} -Q default
     env_file:
       - .env
     environment:
@@ -142,6 +143,7 @@ services:
     volumes:
       - ./backend:/app
       - /Volumes/LabStorage/media_metrics/raw_articles:/Volumes/LabStorage/media_metrics/raw_articles:ro
+      - mm_logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -181,3 +183,4 @@ volumes:
   qdrant_data:
   grafana_data:
   redis_data:
+  mm_logs:

@@ -24,10 +24,12 @@ The scraper can then fetch full article text from those URLs.
 from __future__ import annotations
 
 import csv
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from app.services.logging_service import get_logger
 
 DATA_ROOT = Path("/Volumes/LabStorage/media_metrics/raw_articles")
 
@@ -144,6 +146,8 @@ async def ingest_kaggle_dataset(
 
     stats = {"inserted": 0, "skipped_dup": 0, "skipped_short": 0, "total_read": 0}
     is_headlines = version == "headlines"
+    _log = get_logger()
+    _batch_start = time.monotonic()
 
     async with AsyncSessionLocal() as db:
         # Pre-load sources
@@ -292,6 +296,15 @@ async def ingest_kaggle_dataset(
                     if url:
                         existing_urls.add(url)
                     stats["inserted"] += 1
+                    _log.debug(
+                        "article_ingested",
+                        article_id=str(article.id),
+                        source=source_name,
+                        title=title[:120],
+                        url=url or "",
+                        ingest_source="kaggle",
+                        version=version,
+                    )
 
                     if stats["inserted"] % 500 == 0:
                         print(
@@ -299,9 +312,21 @@ async def ingest_kaggle_dataset(
                             f"(dup={stats['skipped_dup']}, short={stats['skipped_short']})"
                         )
 
+    _duration_ms = int((time.monotonic() - _batch_start) * 1000)
     print(
         f"[Kaggle] Done: inserted={stats['inserted']}, "
         f"skipped_dup={stats['skipped_dup']}, skipped_short={stats['skipped_short']}, "
         f"total_read={stats['total_read']}"
+    )
+    _log.info(
+        "kaggle_ingest_complete",
+        version=version,
+        offset=offset,
+        inserted=stats["inserted"],
+        skipped_dup=stats["skipped_dup"],
+        skipped_short=stats["skipped_short"],
+        total_read=stats["total_read"],
+        duration_ms=_duration_ms,
+        ingest_source="kaggle",
     )
     return stats

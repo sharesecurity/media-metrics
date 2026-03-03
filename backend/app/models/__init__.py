@@ -215,3 +215,12 @@ class StoryClusterArticle(Base):
     article_id = Column(UUID(as_uuid=True), ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True)
     similarity_score = Column(Float)
     cluster = relationship("StoryCluster", back_populates="members")
+
+
+class AppSetting(Base):
+    """Key-value store for runtime application settings (logging, Celery, etc.)."""
+    __tablename__ = "app_settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False, default="")
+    description = Column(Text, nullable=True)
+    updated_at = Column(TS, server_default="NOW()", onupdate="NOW()")

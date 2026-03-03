@@ -7,10 +7,12 @@ After analysis, generates a nomic-embed-text embedding and stores it in Qdrant.
 import httpx
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import textstat
+from app.services.logging_service import get_logger
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import select
 from app.config import settings
@@ -140,6 +142,8 @@ async def _upsert_to_qdrant(article_id: str, embedding: list[float], payload: di
 
 async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
     """Run full bias analysis on an article, then index it in Qdrant."""
+    _t_start = time.monotonic()
+    _log = get_logger()
     async with AsyncSession_() as db:
         result = await db.execute(
             select(Article, Source.name.label("source_name"))
@@ -167,6 +171,13 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
             return
 
         print(f"[Bias] Analyzing article: {article.title[:60]}...")
+        _log.info(
+            "analysis_started",
+            article_id=article_id,
+            source=source_name or "",
+            title=(article.title or "")[:120],
+            model=settings.ollama_model,
+        )
 
         # 1. VADER Sentiment (fast, rule-based)
         vader_scores = vader.polarity_scores(text)
@@ -238,9 +249,28 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
             )
             db.add(analysis)
             await db.commit()
+            _duration_ms = int((time.monotonic() - _t_start) * 1000)
             print(f"[Bias] ✓ Analysis saved for {article_id}")
+            _log.info(
+                "analysis_completed",
+                article_id=article_id,
+                source=source_name or "",
+                political_lean=political_lean,
+                sentiment_score=round(sentiment_score, 4),
+                reading_level=reading_level,
+                duration_ms=_duration_ms,
+                model=settings.ollama_model,
+            )
         except Exception as e:
+            _duration_ms = int((time.monotonic() - _t_start) * 1000)
             print(f"[Bias] DB save error ({type(e).__name__}): {e}")
+            _log.error(
+                "analysis_failed",
+                article_id=article_id,
+                source=source_name or "",
+                error=str(e),
+                duration_ms=_duration_ms,
+            )
             await db.rollback()
             return  # If we can't save analysis, skip Qdrant too
 

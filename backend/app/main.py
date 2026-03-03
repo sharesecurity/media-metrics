@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.database import init_db
 from app.routers import articles, analysis, sources, authors, ingest, search, chat, bias_methods, entities, clusters
+from app.routers import settings as settings_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -14,6 +15,12 @@ async def lifespan(app: FastAPI):
         await ensure_bucket()
     except Exception as e:
         print(f"[Startup] MinIO bucket init failed (non-critical): {e}")
+    # Initialize structured logging from DB settings
+    try:
+        from app.services.logging_service import init_logging_from_db
+        await init_logging_from_db()
+    except Exception as e:
+        print(f"[Startup] Logging init failed (non-critical): {e}")
     yield
 
 app = FastAPI(
@@ -41,6 +48,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(bias_methods.router, prefix="/api/bias-methods", tags=["bias-methods"])
 app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
 app.include_router(clusters.router, prefix="/api/clusters", tags=["clusters"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 
 @app.get("/health")
 async def health():

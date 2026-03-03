@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy import select
 from app.config import settings
 from app.models import Article, Source, Author
+from app.services.logging_service import get_logger
 
 # GDELT GKG master file list (updated every 15 minutes)
 GDELT_MASTERLIST_URL = "http://data.gdeltproject.org/gdeltv2/masterfilelist-translation.txt"
@@ -270,6 +271,13 @@ async def ingest_gdelt_sample(limit: int = 100, date: Optional[str] = None):
                         db.add(article)
                         await db.commit()
                         ingested += 1
+                        get_logger().debug(
+                            "article_ingested",
+                            article_id=str(article.id),
+                            source=source_name,
+                            url=url,
+                            ingest_source="gdelt",
+                        )
                         if ingested % 10 == 0:
                             print(f"[GDELT] Ingested {ingested} articles")
 

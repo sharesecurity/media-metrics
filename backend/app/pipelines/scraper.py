@@ -6,6 +6,7 @@ Uses trafilatura — the best Python web scraping library for news articles.
 
 import asyncio
 import httpx
+import time
 import trafilatura
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -13,6 +14,7 @@ from sqlalchemy import select, update, case, func, cast, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from app.config import settings
 from app.models import Article, Source, Author
+from app.services.logging_service import get_logger
 
 engine = create_async_engine(settings.database_url)
 AsyncSession_ = async_sessionmaker(engine, expire_on_commit=False)
@@ -156,9 +158,13 @@ async def scrape_missing_articles(
         "finished_at": None,
     })
 
+    _log = get_logger()
+    _batch_start = time.monotonic()
+
     async def scrape_one(article_id, url: str, current_title: str = "", source_id=None, has_author: bool = False):
         nonlocal scraped, failed
         async with semaphore:
+            _t0 = time.monotonic()
             text, scraped_title, scraped_author, http_status = await scrape_article(client, url)
             if text and len(text) >= min_text_length:
                 async with AsyncSession_() as db:
@@ -181,6 +187,14 @@ async def scrape_missing_articles(
                         print(f"[Scraper] MinIO store failed (non-critical): {me}")
                     await db.execute(update(Article).where(Article.id == article_id).values(**values))
                     await db.commit()
+                _log.info(
+                    "article_scraped",
+                    article_id=str(article_id),
+                    url=url,
+                    word_count=len(text.split()),
+                    author=scraped_author or None,
+                    duration_ms=int((time.monotonic() - _t0) * 1000),
+                )
                 # Wire up author from scraped metadata (only when article has no author yet)
                 if scraped_author and not has_author and source_id:
                     try:
@@ -205,6 +219,21 @@ async def scrape_missing_articles(
             else:
                 failed += 1
                 SCRAPER_STATUS["failed"] = failed
+                _log.info(
+                    "article_scrape_failed",
+                    article_id=str(article_id),
+                    url=url,
+                    http_status=http_status,
+                    reason="short_or_empty" if (not text or len(text) < min_text_length) else "unknown",
+                    duration_ms=int((time.monotonic() - _t0) * 1000),
+                ) if http_status not in PERMANENT_FAILURE_CODES else _log.error(
+                    "article_scrape_failed",
+                    article_id=str(article_id),
+                    url=url,
+                    http_status=http_status,
+                    reason="permanent_http_failure",
+                    duration_ms=int((time.monotonic() - _t0) * 1000),
+                )
                 # Mark permanent HTTP failures so they're not retried
                 if http_status in PERMANENT_FAILURE_CODES:
                     async with AsyncSession_() as db:
@@ -234,6 +263,13 @@ async def scrape_missing_articles(
         "finished_at": datetime.now(timezone.utc).isoformat(),
     })
     print(f"[Scraper] Done. Scraped={scraped}, Failed/Short={failed}")
+    _log.info(
+        "batch_scrape_complete",
+        scraped=scraped,
+        failed=failed,
+        total_candidates=total,
+        duration_ms=int((time.monotonic() - _batch_start) * 1000),
+    )
     return {
         "scraped": scraped,
         "failed": failed,

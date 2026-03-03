@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, Users, GitCompare, Building2, User, Layers } from 'lucide-react'
+import { LayoutDashboard, Newspaper, BarChart2, MessageSquare, TrendingUp, Search, Settings, SlidersHorizontal, Users, GitCompare, Building2, User, Layers } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Articles from './pages/Articles'
 import ArticleDetail from './pages/ArticleDetail'
@@ -17,6 +17,7 @@ import SourceDetail from './pages/SourceDetail'
 import People from './pages/People'
 import PersonDetail from './pages/PersonDetail'
 import StoryClusters from './pages/StoryClusters'
+import SettingsPage from './pages/Settings'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -31,6 +32,7 @@ const NAV = [
   { to: '/people', icon: User, label: 'People' },
   { to: '/chat', icon: MessageSquare, label: 'AI Chat' },
   { to: '/bias-methods', icon: Settings, label: 'Bias Methods' },
+  { to: '/settings', icon: SlidersHorizontal, label: 'Settings' },
 ]
 
 export default function App() {
@@ -93,6 +95,7 @@ export default function App() {
           <Route path="/people/:id" element={<PersonDetail />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/bias-methods" element={<BiasMethodEditor />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
     </div>
