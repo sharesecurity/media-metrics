@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats } from '../utils/api'
-import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity } from 'lucide-react'
+import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest, getProvenanceSummary } from '../utils/api'
+import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity, HardDrive, GitBranch } from 'lucide-react'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -27,6 +27,8 @@ export default function Dashboard() {
   const [ingesting, setIngesting] = useState(false)
   const [scraping, setScraping] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [kaggleIngesting, setKaggleIngesting] = useState(false)
+  const [kaggleOffset, setKaggleOffset] = useState(0)
   const [msg, setMsg] = useState('')
 
   const { data: stats, refetch: refetchStats } = useQuery({
@@ -53,6 +55,39 @@ export default function Dashboard() {
     queryFn: getQueueStats,
     refetchInterval: 10000,
   })
+
+  const { data: kaggleStatus } = useQuery({
+    queryKey: ['kaggle-status'],
+    queryFn: getKaggleStatus,
+    staleTime: 30000,
+  })
+
+  const { data: provenanceSummary = [] } = useQuery({
+    queryKey: ['provenance-summary'],
+    queryFn: getProvenanceSummary,
+    staleTime: 60000,
+  })
+
+  const handleKaggleIngest = async (version = 'headlines', limit = 5000) => {
+    setKaggleIngesting(true)
+    const offset = version === 'headlines' ? kaggleOffset : 0
+    const label = version === 'headlines' ? '4.4M Headlines dataset' : `All the News ${version.toUpperCase()}`
+    setMsg(`Starting Kaggle ingest: rows ${offset.toLocaleString()}–${(offset + limit).toLocaleString()} from ${label}...`)
+    try {
+      const res = await startKaggleIngest({ version, limit, offset, auto_analyze: false })
+      if (res.error) {
+        setMsg(`Kaggle: ${res.error}`)
+      } else {
+        if (version === 'headlines') setKaggleOffset(prev => prev + limit)
+        setMsg(`Kaggle ingest started! Reading rows ${offset.toLocaleString()}–${(offset + limit).toLocaleString()}. Run "Scrape Text" afterward to fetch full article content.`)
+        setTimeout(() => refetchStats(), 15000)
+        setTimeout(() => refetchStats(), 60000)
+      }
+    } catch (e) {
+      setMsg('Kaggle ingest failed: ' + e.message)
+    }
+    setKaggleIngesting(false)
+  }
 
   const handleIngest = async () => {
     setIngesting(true)
@@ -259,6 +294,87 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Kaggle Dataset Panel */}
+      <div className="card border border-gray-700">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <HardDrive size={16} className="text-orange-400" />
+            <h2 className="font-semibold text-white">Bulk Historical Data — Kaggle Headlines</h2>
+          </div>
+          {kaggleStatus && (
+            <span className={`text-xs px-2 py-0.5 rounded-full ${
+              kaggleStatus.versions?.headlines?.ready || kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready
+                ? 'bg-green-900/40 text-green-300 border border-green-700'
+                : 'bg-yellow-900/40 text-yellow-300 border border-yellow-700'
+            }`}>
+              {kaggleStatus.versions?.headlines?.ready || kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready ? 'Data ready' : 'Not downloaded'}
+            </span>
+          )}
+        </div>
+
+        {kaggleStatus?.versions?.headlines?.ready || kaggleStatus?.versions?.v1?.ready || kaggleStatus?.versions?.v2?.ready ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {[
+                { key: 'headlines', label: '4.4M Headlines — 10 outlets (2007–2023)', limits: [5000, 25000, 100000] },
+                { key: 'v1', label: 'All the News v1 — ~210K articles (2012–2018)', limits: [1000, 5000, 25000] },
+                { key: 'v2', label: 'All the News v2 — ~2.7M articles (2016–2020)', limits: [1000, 5000, 25000] },
+              ].map(({ key, label, limits }) => {
+                const v = kaggleStatus.versions?.[key]
+                if (!v?.ready) return null
+                return (
+                  <div key={key} className="bg-gray-800 rounded-lg p-3">
+                    <div className="text-white font-medium">{label}</div>
+                    <div className="text-gray-400 mt-1">{v.file_count} file{v.file_count !== 1 ? 's' : ''} · {v.size_gb} GB</div>
+                    {key === 'headlines' && (
+                      <div className="text-gray-500 text-xs mt-1">NYT · WaPo · Fox · CNN · BBC · Guardian · Daily Mail · NY Post · CNBC · USA Today</div>
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      {limits.map(n => (
+                        <button key={n}
+                          onClick={() => handleKaggleIngest(key, n)}
+                          disabled={kaggleIngesting}
+                          className="px-2 py-1 text-xs bg-orange-700 hover:bg-orange-600 disabled:opacity-50 text-white rounded transition-colors"
+                        >
+                          {kaggleIngesting ? '…' : `+${n >= 1000 ? (n/1000)+'K' : n}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>
+                Headlines only (2015+, skips paywalled archives) — ingest then "Scrape Text" to fetch article bodies.
+              </span>
+              {kaggleStatus?.versions?.headlines?.ready && (
+                <span className="flex items-center gap-2 shrink-0 ml-4">
+                  Row position: <span className="text-gray-300 font-mono">{kaggleOffset.toLocaleString()}</span> / ~4,405,397
+                  {kaggleOffset > 0 && (
+                    <button
+                      onClick={() => setKaggleOffset(0)}
+                      className="text-gray-600 hover:text-gray-400 underline ml-1"
+                    >reset</button>
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-gray-400 space-y-2">
+            <p>Download the dataset once to unlock bulk historical ingestion (4.4M headlines from 10 major outlets, 2007–2023).</p>
+            <div className="bg-gray-800 rounded-lg p-3 font-mono text-xs text-gray-300 space-y-1">
+              <div className="text-gray-500"># 1. Add Kaggle API token → ~/.kaggle/kaggle.json</div>
+              <div className="text-gray-500">#    https://www.kaggle.com/settings → API → Create New Token</div>
+              <div>python scripts/download_kaggle_data.py --dataset headlines</div>
+              <div className="text-gray-500"># ~714 MB · NYT, WaPo, Fox, CNN, BBC, Guardian, Daily Mail, NY Post, CNBC, USA Today</div>
+            </div>
+            <p className="text-gray-500 text-xs">Data saved to: /Volumes/LabStorage/media_metrics/raw_articles/headlines/</p>
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-6">
         {/* Articles by source */}
         <div className="card">
@@ -303,6 +419,33 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      {/* Wire Service Provenance Summary */}
+      {provenanceSummary.length > 0 && (
+        <div className="card">
+          <div className="flex items-center gap-2 mb-4">
+            <GitBranch size={16} className="text-teal-400" />
+            <h2 className="font-semibold text-white">Wire Service Attribution</h2>
+            <span className="text-xs text-gray-500 ml-1">— articles identified as wire pickups</span>
+          </div>
+          <div className="grid grid-cols-5 gap-3">
+            {provenanceSummary.map(item => (
+              <div key={item.org_slug} className="bg-gray-800 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-white">{item.article_count}</p>
+                <p className="text-sm text-teal-300 font-medium mt-1">{item.org_name}</p>
+                {item.avg_confidence && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {(item.avg_confidence * 100).toFixed(0)}% conf.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-600 mt-3">
+            Detected via regex patterns (explicit attribution) and LLM inference (fallback). More articles will be attributed as analysis runs.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
