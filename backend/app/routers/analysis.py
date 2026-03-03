@@ -56,13 +56,19 @@ async def run_all_unanalyzed(
     limit: int = 500,
     db: AsyncSession = Depends(get_db)
 ):
-    """Queue analysis for unanalyzed articles that have text. Default limit 500."""
+    """Queue analysis for unanalyzed articles that have text. Default limit 500.
+    Excludes stub articles (word_count < 50) — section pages / bare headlines.
+    """
     analyzed_ids = select(AnalysisResult.article_id)
     result = await db.execute(
         select(Article.id)
         .where(~Article.id.in_(analyzed_ids))
         .where(
             (Article.raw_text.is_not(None)) | (Article.minio_key.is_not(None))
+        )
+        # Skip stub articles — they waste Ollama calls and skew results
+        .where(
+            (Article.word_count.is_(None)) | (Article.word_count >= 50)
         )
         .limit(limit)
     )
