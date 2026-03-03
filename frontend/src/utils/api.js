@@ -75,3 +75,20 @@ export const inferAllDemographics = () => api.post('/authors/infer-demographics'
 export const reInferEthnicity = () => api.post('/authors/re-infer-ethnicity').then(r => r.data)
 export const getAuthorComparison = (params = {}) =>
   api.get('/authors/comparison', { params }).then(r => r.data)
+export const reInferEthnicity = () => api.post('/authors/re-infer-ethnicity').then(r => r.data)
+
+// Entities (organizations + people)
+export const seedEntities = () => api.post('/entities/seed').then(r => r.data)
+export const getOrganizations = (org_type = null) =>
+  api.get('/entities/organizations', { params: org_type ? { org_type } : {} }).then(r => r.data)
+export const getOrganization = (id) => api.get(`/entities/organizations/${id}`).then(r => r.data)
+export const getPeople = (params = {}) => api.get('/entities/people', { params }).then(r => r.data)
+export const getPersonDetail = (id) => api.get(`/entities/people/${id}`).then(r => r.data)
+export const getProvenanceSummary = () => api.get('/entities/provenance/summary').then(r => r.data)
+
+// Kaggle ingest
+export const getKaggleStatus = () => api.get('/ingest/kaggle/status').then(r => r.data)
+export const startKaggleIngest = (opts = {}) =>
+  api.post('/ingest/kaggle', { version: 'headlines', limit: 5000, auto_analyze: false, min_year: 2015, ...opts }).then(r => r.data)
+export const startScrape = (limit = 50, auto_analyze = false) =>
+  api.post('/ingest/start', { source: 'scrape', limit, auto_analyze }).then(r => r.data)

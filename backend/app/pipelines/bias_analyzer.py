@@ -37,13 +37,18 @@ Consider:
 - Whose voices are quoted
 - Framing of issues
 
+Also assess the article's provenance: is this original reporting, or does it appear to be based on/derived from a wire service (AP, Reuters, AFP, Bloomberg, etc.)? Look for attribution cues, datelines, and writing style. Set provenance_type to one of: "original", "wire_pickup", "syndicated", "press_release", "unknown".
+
 Respond ONLY with valid JSON (no explanation outside JSON):
 {
   "political_lean": <float -1.0 to 1.0>,
   "confidence": <float 0.0 to 1.0>,
   "primary_topic": "<string>",
   "key_indicators": ["<indicator1>", "<indicator2>"],
-  "framing_notes": "<brief explanation>"
+  "framing_notes": "<brief explanation>",
+  "provenance_type": "<original|wire_pickup|syndicated|press_release|unknown>",
+  "provenance_confidence": <float 0.0 to 1.0>,
+  "wire_service": "<AP|Reuters|AFP|Bloomberg|UPI|null>"
 }
 
 Article:
@@ -239,32 +244,65 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
             await db.rollback()
             return  # If we can't save analysis, skip Qdrant too
 
-        # 5. Provenance detection — regex scan for wire service attribution
+        # 5. Provenance detection
+        # Method A: regex scan (high confidence, cheap)
         wire_hits = detect_wire_attribution(text)
-        if wire_hits:
-            try:
-                # Look up org IDs for detected wire services (cached per session)
-                org_result = await db.execute(
-                    select(Organization.id, Organization.slug)
-                    .where(Organization.slug.in_([h["wire_slug"] for h in wire_hits]))
-                )
-                slug_to_id = {row.slug: row.id for row in org_result}
+        provenance_records = []
 
-                for hit in wire_hits:
-                    org_id = slug_to_id.get(hit["wire_slug"])
+        if wire_hits:
+            org_result = await db.execute(
+                select(Organization.id, Organization.slug)
+                .where(Organization.slug.in_([h["wire_slug"] for h in wire_hits]))
+            )
+            slug_to_id = {row.slug: row.id for row in org_result}
+            for hit in wire_hits:
+                provenance_records.append({
+                    "provenance_type": "wire_pickup",
+                    "wire_service_id": slug_to_id.get(hit["wire_slug"]),
+                    "confidence": hit["confidence"],
+                    "detection_method": "explicit_attribution",
+                    "attribution_text": hit["attribution_text"],
+                })
+
+        # Method B: LLM inference (lower confidence, adds context regex misses)
+        # Only save LLM provenance if regex found nothing (avoid duplicates)
+        llm_prov_type = llm_result.get("provenance_type", "unknown")
+        llm_prov_conf = llm_result.get("provenance_confidence", 0.3)
+        llm_wire_name = llm_result.get("wire_service")  # "AP", "Reuters", etc.
+
+        if not wire_hits and llm_prov_type not in ("unknown", "original", None) and llm_prov_conf and llm_prov_conf >= 0.4:
+            wire_org_id = None
+            if llm_wire_name:
+                # Map common names to slugs
+                wire_slug_map = {"AP": "ap", "Reuters": "reuters", "AFP": "afp",
+                                 "Bloomberg": "bloomberg", "UPI": "upi"}
+                slug = wire_slug_map.get(llm_wire_name)
+                if slug:
+                    org_r = await db.execute(
+                        select(Organization.id).where(Organization.slug == slug)
+                    )
+                    row = org_r.one_or_none()
+                    wire_org_id = row[0] if row else None
+            provenance_records.append({
+                "provenance_type": llm_prov_type,
+                "wire_service_id": wire_org_id,
+                "confidence": llm_prov_conf,
+                "detection_method": "llm_inference",
+                "attribution_text": None,
+            })
+
+        if provenance_records:
+            try:
+                for rec in provenance_records:
                     prov = ArticleProvenance(
                         article_id=uuid.UUID(article_id),
-                        provenance_type="wire_pickup",
-                        wire_service_id=org_id,
-                        confidence=hit["confidence"],
-                        detection_method="explicit_attribution",
-                        attribution_text=hit["attribution_text"],
                         detected_at=datetime.now(timezone.utc),
+                        **rec,
                     )
                     db.add(prov)
                 await db.commit()
-                slugs = [h["wire_slug"] for h in wire_hits]
-                print(f"[Bias] ✓ Provenance detected: {slugs} for {article_id}")
+                methods = list({r["detection_method"] for r in provenance_records})
+                print(f"[Bias] ✓ Provenance saved ({methods}) for {article_id}")
             except Exception as e:
                 print(f"[Bias] Provenance save error: {e}")
                 await db.rollback()
