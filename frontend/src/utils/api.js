@@ -7,6 +7,7 @@ const api = axios.create({
 
 // Articles
 export const getArticles = (params) => api.get('/articles/', { params }).then(r => r.data)
+export const getArticleCount = (params) => api.get('/articles/count', { params }).then(r => r.data)
 export const getArticlesByAuthor = (author_id, limit = 50) =>
   api.get('/articles/', { params: { author_id, limit } }).then(r => r.data)
 export const getArticle = (id) => api.get(`/articles/${id}`).then(r => r.data)
@@ -45,9 +46,6 @@ export const startIngest = (source = 'rss', limit = 20, sources = null, auto_ana
   api.post('/ingest/start', { source, limit, sources, auto_analyze }).then(r => r.data)
 export const getIngestSources = () => api.get('/ingest/sources').then(r => r.data)
 export const getIngestStatus = () => api.get('/ingest/status').then(r => r.data)
-export const getKaggleStatus = () => api.get('/ingest/kaggle/status').then(r => r.data)
-export const startKaggleIngest = (opts = {}) =>
-  api.post('/ingest/kaggle', { version: 'headlines', limit: 5000, auto_analyze: false, min_year: 2015, ...opts }).then(r => r.data)
 
 // Chat
 export const askChat = (message, context = '') =>
@@ -72,7 +70,6 @@ export const getAuthors = () => api.get('/authors/').then(r => r.data)
 export const getAuthor = (id) => api.get(`/authors/${id}`).then(r => r.data)
 export const getDemographicsSummary = () => api.get('/authors/demographics/summary').then(r => r.data)
 export const inferAllDemographics = () => api.post('/authors/infer-demographics').then(r => r.data)
-export const reInferEthnicity = () => api.post('/authors/re-infer-ethnicity').then(r => r.data)
 export const getAuthorComparison = (params = {}) =>
   api.get('/authors/comparison', { params }).then(r => r.data)
 export const reInferEthnicity = () => api.post('/authors/re-infer-ethnicity').then(r => r.data)

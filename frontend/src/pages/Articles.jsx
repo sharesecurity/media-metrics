@@ -1,10 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
-import { getArticles, getSources, searchArticles, getArticleStats } from '../utils/api'
+import { getArticles, getArticleCount, getSources, searchArticles } from '../utils/api'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import { Search, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const PAGE_SIZE = 100
+
+// lean range → [lean_min, lean_max] params
+const LEAN_RANGES = {
+  all:    [undefined, undefined],
+  left:   [undefined, -0.2],
+  center: [-0.2, 0.2],
+  right:  [0.2, undefined],
+}
 
 const BiasBar = ({ value }) => {
   if (value == null) return <span className="text-xs text-gray-600">not analyzed</span>
@@ -27,7 +35,7 @@ const BiasBar = ({ value }) => {
 export default function Articles() {
   const [q, setQ] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
-  const [leanFilter, setLeanFilter] = useState('all') // all | left | center | right
+  const [leanFilter, setLeanFilter] = useState('all')
   const [analyzedOnly, setAnalyzedOnly] = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -35,18 +43,25 @@ export default function Articles() {
   const [page, setPage] = useState(0)
 
   const { data: sources } = useQuery({ queryKey: ['sources'], queryFn: getSources })
-  const { data: stats } = useQuery({
-    queryKey: ['article-stats'],
-    queryFn: getArticleStats,
-    staleTime: 30000,
+
+  const [leanMin, leanMax] = LEAN_RANGES[leanFilter]
+  const filterParams = {
+    source_id: sourceFilter || undefined,
+    analyzed_only: analyzedOnly || undefined,
+    lean_min: leanMin,
+    lean_max: leanMax,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
+  }
+
+  const { data: countData } = useQuery({
+    queryKey: ['articles-count', filterParams],
+    queryFn: () => getArticleCount(filterParams),
+    staleTime: 15000,
   })
   const { data: articles, isLoading } = useQuery({
-    queryKey: ['articles', sourceFilter, page],
-    queryFn: () => getArticles({
-      source_id: sourceFilter || undefined,
-      skip: page * PAGE_SIZE,
-      limit: PAGE_SIZE,
-    }),
+    queryKey: ['articles', filterParams, page],
+    queryFn: () => getArticles({ ...filterParams, skip: page * PAGE_SIZE, limit: PAGE_SIZE }),
     keepPreviousData: true,
   })
   const { data: searchResults } = useQuery({
@@ -63,23 +78,11 @@ export default function Articles() {
     window._searchTimer = setTimeout(() => setDebouncedQ(val), 400)
   }
 
-  const handleSourceChange = (val) => {
-    setSourceFilter(val)
-    setPage(0)
-  }
+  const resetPage = () => setPage(0)
 
-  const baseArticles = isSearching ? searchResults : articles
-  const displayArticles = (baseArticles || []).filter(a => {
-    if (analyzedOnly && a.political_lean == null) return false
-    if (leanFilter === 'left' && (a.political_lean == null || a.political_lean >= -0.2)) return false
-    if (leanFilter === 'center' && (a.political_lean == null || a.political_lean < -0.2 || a.political_lean > 0.2)) return false
-    if (leanFilter === 'right' && (a.political_lean == null || a.political_lean <= 0.2)) return false
-    if (dateFrom && a.published_at && new Date(a.published_at) < new Date(dateFrom)) return false
-    if (dateTo && a.published_at && new Date(a.published_at) > new Date(dateTo + 'T23:59:59')) return false
-    return true
-  })
+  const displayArticles = isSearching ? (searchResults || []) : (articles || [])
 
-  const totalArticles = stats?.total_articles ?? 0
+  const totalArticles = countData?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(totalArticles / PAGE_SIZE))
 
   const sentimentColor = (s) => {
@@ -96,7 +99,7 @@ export default function Articles() {
         <span className="text-sm text-gray-500">
           {isSearching
             ? `${displayArticles.length} search results`
-            : `${displayArticles.length}${leanFilter !== 'all' || analyzedOnly ? ` of ${baseArticles?.length ?? 0}` : ''} · ${totalArticles.toLocaleString()} total`
+            : `${totalArticles.toLocaleString()} articles`
           }
         </span>
       </div>
@@ -115,7 +118,7 @@ export default function Articles() {
         </div>
         <select
           value={sourceFilter}
-          onChange={e => handleSourceChange(e.target.value)}
+          onChange={e => { setSourceFilter(e.target.value); resetPage() }}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         >
           <option value="">All Sources</option>
@@ -127,7 +130,7 @@ export default function Articles() {
           {[['all','All Lean'],['left','Left'],['center','Center'],['right','Right']].map(([val, label]) => (
             <button
               key={val}
-              onClick={() => setLeanFilter(val)}
+              onClick={() => { setLeanFilter(val); resetPage() }}
               className={`px-3 py-2 transition-colors ${leanFilter === val ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
             >
               {label}
@@ -135,7 +138,7 @@ export default function Articles() {
           ))}
         </div>
         <button
-          onClick={() => setAnalyzedOnly(v => !v)}
+          onClick={() => { setAnalyzedOnly(v => !v); resetPage() }}
           className={`px-3 py-2 rounded-lg border text-sm transition-colors ${analyzedOnly ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}
         >
           Analyzed only
@@ -146,7 +149,7 @@ export default function Articles() {
         <input
           type="date"
           value={dateFrom}
-          onChange={e => setDateFrom(e.target.value)}
+          onChange={e => { setDateFrom(e.target.value); resetPage() }}
           className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
           title="From date"
         />
@@ -154,13 +157,13 @@ export default function Articles() {
         <input
           type="date"
           value={dateTo}
-          onChange={e => setDateTo(e.target.value)}
+          onChange={e => { setDateTo(e.target.value); resetPage() }}
           className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
           title="To date"
         />
         {(dateFrom || dateTo) && (
           <button
-            onClick={() => { setDateFrom(''); setDateTo('') }}
+            onClick={() => { setDateFrom(''); setDateTo(''); resetPage() }}
             className="text-gray-500 hover:text-gray-300 text-xs px-1"
             title="Clear date filter"
           >
@@ -232,7 +235,7 @@ export default function Articles() {
         {!isSearching && totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
             <span className="text-xs text-gray-500">
-              Page {page + 1} of {totalPages} · {totalArticles.toLocaleString()} total articles
+              Page {page + 1} of {totalPages} · {totalArticles.toLocaleString()} total
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -242,8 +245,8 @@ export default function Articles() {
               >
                 <ChevronLeft size={14} /> Prev
               </button>
-              <span className="text-xs text-gray-600 w-16 text-center">
-                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalArticles)}
+              <span className="text-xs text-gray-600 w-20 text-center">
+                {(page * PAGE_SIZE + 1).toLocaleString()}–{Math.min((page + 1) * PAGE_SIZE, totalArticles).toLocaleString()}
               </span>
               <button
                 disabled={page >= totalPages - 1}

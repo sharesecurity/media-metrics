@@ -31,9 +31,14 @@ async def list_articles(
     limit: int = 50,
     source_id: Optional[str] = None,
     section: Optional[str] = None,
-    author_id: Optional[str] = None,
+    analyzed_only: bool = False,
+    lean_min: Optional[float] = None,
+    lean_max: Optional[float] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
+    from sqlalchemy import and_
     # Use a subquery to get only the latest analysis result per article
     latest_analysis = (
         select(
@@ -45,6 +50,7 @@ async def list_articles(
         .order_by(AnalysisResult.article_id, desc(AnalysisResult.analyzed_at))
         .subquery()
     )
+    join_type = "inner" if analyzed_only or lean_min is not None or lean_max is not None else "outer"
     q = (
         select(
             Article.id, Article.title, Article.url, Article.published_at,
@@ -56,17 +62,27 @@ async def list_articles(
         )
         .outerjoin(Source, Article.source_id == Source.id)
         .outerjoin(Author, Article.author_id == Author.id)
-        .outerjoin(latest_analysis, Article.id == latest_analysis.c.article_id)
         .order_by(desc(Article.published_at))
         .offset(skip)
         .limit(limit)
     )
+    if join_type == "inner":
+        q = q.join(latest_analysis, Article.id == latest_analysis.c.article_id)
+    else:
+        q = q.outerjoin(latest_analysis, Article.id == latest_analysis.c.article_id)
+
     if source_id:
         q = q.where(Article.source_id == uuid.UUID(source_id))
     if section:
         q = q.where(Article.section == section)
-    if author_id:
-        q = q.where(Article.author_id == uuid.UUID(author_id))
+    if lean_min is not None:
+        q = q.where(latest_analysis.c.political_lean >= lean_min)
+    if lean_max is not None:
+        q = q.where(latest_analysis.c.political_lean <= lean_max)
+    if date_from:
+        q = q.where(Article.published_at >= date_from)
+    if date_to:
+        q = q.where(Article.published_at <= date_to + "T23:59:59")
 
     result = await db.execute(q)
     rows = result.all()
@@ -77,6 +93,58 @@ async def list_articles(
         author_name=r.author_name, sentiment_score=r.sentiment_score,
         political_lean=r.political_lean
     ) for r in rows]
+
+
+@router.get("/count")
+async def count_articles(
+    source_id: Optional[str] = None,
+    analyzed_only: bool = False,
+    lean_min: Optional[float] = None,
+    lean_max: Optional[float] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return total article count matching the given filters (same params as list endpoint)."""
+    latest_analysis = (
+        select(AnalysisResult.article_id)
+        .distinct(AnalysisResult.article_id)
+        .order_by(AnalysisResult.article_id, desc(AnalysisResult.analyzed_at))
+        .subquery()
+    )
+    needs_join = analyzed_only or lean_min is not None or lean_max is not None
+
+    q = select(func.count(Article.id))
+    if needs_join:
+        q = q.join(latest_analysis, Article.id == latest_analysis.c.article_id)
+    if source_id:
+        q = q.where(Article.source_id == uuid.UUID(source_id))
+    if date_from:
+        q = q.where(Article.published_at >= date_from)
+    if date_to:
+        q = q.where(Article.published_at <= date_to + "T23:59:59")
+
+    if lean_min is not None or lean_max is not None:
+        lean_subq = (
+            select(
+                AnalysisResult.article_id,
+                AnalysisResult.political_lean,
+            )
+            .distinct(AnalysisResult.article_id)
+            .order_by(AnalysisResult.article_id, desc(AnalysisResult.analyzed_at))
+            .subquery()
+        )
+        q = select(func.count(Article.id)).join(lean_subq, Article.id == lean_subq.c.article_id)
+        if source_id:
+            q = q.where(Article.source_id == uuid.UUID(source_id))
+        if lean_min is not None:
+            q = q.where(lean_subq.c.political_lean >= lean_min)
+        if lean_max is not None:
+            q = q.where(lean_subq.c.political_lean <= lean_max)
+
+    total = await db.scalar(q) or 0
+    return {"total": total}
+
 
 @router.get("/stats")
 async def article_stats(db: AsyncSession = Depends(get_db)):
@@ -151,18 +219,6 @@ async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
     if not article:
         raise HTTPException(404, "Article not found")
 
-    # Fetch source and author names
-    source_name = None
-    author_name = None
-    if article.source_id:
-        sr = await db.execute(select(Source).where(Source.id == article.source_id))
-        src = sr.scalar_one_or_none()
-        source_name = src.name if src else None
-    if article.author_id:
-        ar = await db.execute(select(Author).where(Author.id == article.author_id))
-        auth = ar.scalar_one_or_none()
-        author_name = auth.name if auth else None
-
     analysis = await db.execute(
         select(AnalysisResult).where(AnalysisResult.article_id == article.id)
     )
@@ -187,9 +243,6 @@ async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
         "section": article.section,
         "word_count": article.word_count,
         "tags": article.tags,
-        "source_name": source_name,
-        "author_id": str(article.author_id) if article.author_id else None,
-        "author_name": author_name,
         "analyses": [
             {
                 "type": a.analysis_type,
@@ -197,7 +250,6 @@ async def get_article(article_id: str, db: AsyncSession = Depends(get_db)):
                 "sentiment_score": a.sentiment_score,
                 "sentiment_label": a.sentiment_label,
                 "subjectivity": a.subjectivity,
-                "reading_level": a.reading_level,
                 "primary_topic": a.primary_topic,
                 "raw_analysis": a.raw_analysis,
                 "analyzed_at": a.analyzed_at,
