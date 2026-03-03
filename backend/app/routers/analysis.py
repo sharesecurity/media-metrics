@@ -53,12 +53,18 @@ async def run_analysis(
 
 @router.post("/run-all")
 async def run_all_unanalyzed(
+    limit: int = 500,
     db: AsyncSession = Depends(get_db)
 ):
-    """Queue analysis for all articles that haven't been analyzed yet."""
+    """Queue analysis for unanalyzed articles that have text. Default limit 500."""
     analyzed_ids = select(AnalysisResult.article_id)
     result = await db.execute(
-        select(Article.id).where(~Article.id.in_(analyzed_ids)).limit(100)
+        select(Article.id)
+        .where(~Article.id.in_(analyzed_ids))
+        .where(
+            (Article.raw_text.is_not(None)) | (Article.minio_key.is_not(None))
+        )
+        .limit(limit)
     )
     ids = [str(r.id) for r in result.all()]
     task_ids = [_dispatch(aid, "full") for aid in ids]
