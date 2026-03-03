@@ -216,7 +216,7 @@ async def ingest_kaggle_dataset(
                             id=uuid.uuid4(),
                             name=source_name,
                             domain=source_name.lower().replace(" ", "") + ".com",
-                            political_lean_baseline=0.0,
+                            political_lean=0.0,
                         )
                         db.add(new_source)
                         await db.flush()
@@ -262,7 +262,6 @@ async def ingest_kaggle_dataset(
                         author_id=author_id,
                         published_at=published_at,
                         ingested_at=datetime.utcnow(),
-                        source_name=source_name,
                         raw_text=None,
                     )
                     db.add(article)
