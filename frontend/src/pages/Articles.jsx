@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { getArticles, getSources, searchArticles } from '../utils/api'
+import { getArticles, getSources, searchArticles, getArticleStats } from '../utils/api'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
-import { Search, ExternalLink } from 'lucide-react'
+import { Search, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
+
+const PAGE_SIZE = 100
 
 const BiasBar = ({ value }) => {
   if (value == null) return <span className="text-xs text-gray-600">not analyzed</span>
@@ -30,11 +32,22 @@ export default function Articles() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
+  const [page, setPage] = useState(0)
 
   const { data: sources } = useQuery({ queryKey: ['sources'], queryFn: getSources })
+  const { data: stats } = useQuery({
+    queryKey: ['article-stats'],
+    queryFn: getArticleStats,
+    staleTime: 30000,
+  })
   const { data: articles, isLoading } = useQuery({
-    queryKey: ['articles', sourceFilter],
-    queryFn: () => getArticles({ source_id: sourceFilter || undefined, limit: 200 }),
+    queryKey: ['articles', sourceFilter, page],
+    queryFn: () => getArticles({
+      source_id: sourceFilter || undefined,
+      skip: page * PAGE_SIZE,
+      limit: PAGE_SIZE,
+    }),
+    keepPreviousData: true,
   })
   const { data: searchResults } = useQuery({
     queryKey: ['search', debouncedQ],
@@ -42,13 +55,20 @@ export default function Articles() {
     enabled: debouncedQ.length > 2,
   })
 
+  const isSearching = debouncedQ.length > 2
+
   const handleSearch = (val) => {
     setQ(val)
     clearTimeout(window._searchTimer)
     window._searchTimer = setTimeout(() => setDebouncedQ(val), 400)
   }
 
-  const baseArticles = debouncedQ.length > 2 ? searchResults : articles
+  const handleSourceChange = (val) => {
+    setSourceFilter(val)
+    setPage(0)
+  }
+
+  const baseArticles = isSearching ? searchResults : articles
   const displayArticles = (baseArticles || []).filter(a => {
     if (analyzedOnly && a.political_lean == null) return false
     if (leanFilter === 'left' && (a.political_lean == null || a.political_lean >= -0.2)) return false
@@ -58,6 +78,9 @@ export default function Articles() {
     if (dateTo && a.published_at && new Date(a.published_at) > new Date(dateTo + 'T23:59:59')) return false
     return true
   })
+
+  const totalArticles = stats?.total_articles ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalArticles / PAGE_SIZE))
 
   const sentimentColor = (s) => {
     if (s == null) return 'text-gray-600'
@@ -71,7 +94,10 @@ export default function Articles() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Articles</h1>
         <span className="text-sm text-gray-500">
-          {displayArticles.length} {(leanFilter !== 'all' || analyzedOnly) ? `of ${baseArticles?.length ?? 0} ` : ''}articles
+          {isSearching
+            ? `${displayArticles.length} search results`
+            : `${displayArticles.length}${leanFilter !== 'all' || analyzedOnly ? ` of ${baseArticles?.length ?? 0}` : ''} · ${totalArticles.toLocaleString()} total`
+          }
         </span>
       </div>
 
@@ -89,7 +115,7 @@ export default function Articles() {
         </div>
         <select
           value={sourceFilter}
-          onChange={e => setSourceFilter(e.target.value)}
+          onChange={e => handleSourceChange(e.target.value)}
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         >
           <option value="">All Sources</option>
@@ -201,6 +227,34 @@ export default function Articles() {
             ))}
           </tbody>
         </table>
+
+        {/* Pagination footer */}
+        {!isSearching && totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
+            <span className="text-xs text-gray-500">
+              Page {page + 1} of {totalPages} · {totalArticles.toLocaleString()} total articles
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={page === 0}
+                onClick={() => setPage(p => p - 1)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-800 text-sm text-gray-400 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft size={14} /> Prev
+              </button>
+              <span className="text-xs text-gray-600 w-16 text-center">
+                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalArticles)}
+              </span>
+              <button
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage(p => p + 1)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-800 text-sm text-gray-400 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
