@@ -141,13 +141,18 @@ def clean_html(text: str) -> str:
     return text
 
 def extract_author_from_rss_item(item: ET.Element, text: str = "") -> Optional[str]:
-    """Extract author from RSS item dc:creator, then fall back to byline patterns in text."""
+    """Extract author from RSS item dc:creator, then fall back to byline patterns in text.
+
+    Returns the raw author string as-is; the caller is responsible for splitting
+    compound names (e.g. "Evan Halper, Rachel Siegel") via split_author_names().
+    """
     # dc:creator is the standard RSS author field
     creator = item.find("dc:creator", NS)
     if creator is not None and creator.text:
         name = creator.text.strip()
-        parts = name.split()
-        if 2 <= len(parts) <= 4 and all(p[0].isupper() for p in parts if p):
+        # Accept any non-trivial string — split_author_names() will separate
+        # compound names downstream.  Only reject obviously bad values.
+        if name and len(name) > 2:
             return name
 
     # Fallback: byline patterns in article text
@@ -367,12 +372,17 @@ async def ingest_rss_feeds(
                         if len(text) < min_text_length:
                             continue
                         
-                        # Extract author if present
+                        # Extract author(s) — split compound names like "A Smith, B Jones"
                         author_id = None
                         author_name = art.get("author")
                         if author_name:
                             try:
-                                author_id = await get_or_create_author(db, author_name, source_id)
+                                from app.pipelines.gdelt_ingest import split_author_names
+                                names = split_author_names(author_name)
+                                for i, name in enumerate(names):
+                                    aid = await get_or_create_author(db, name, source_id)
+                                    if i == 0:
+                                        author_id = aid
                             except Exception as ae:
                                 print(f"[RSS] Author create failed: {ae}")
 
