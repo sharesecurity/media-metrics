@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy import select, update, case, func, cast, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from app.config import settings
-from app.models import Article, Source
+from app.models import Article, Source, Author
 
 engine = create_async_engine(settings.database_url)
 AsyncSession_ = async_sessionmaker(engine, expire_on_commit=False)
@@ -47,8 +47,8 @@ PRIORITY_DOMAINS = {
 }
 
 
-def extract_text_and_meta(html: bytes, url: str) -> tuple[str | None, str | None]:
-    """Use trafilatura to extract article text and title."""
+def extract_text_and_meta(html: bytes, url: str) -> tuple[str | None, str | None, str | None]:
+    """Use trafilatura to extract article text, title, and author byline."""
     try:
         text = trafilatura.extract(
             html,
@@ -60,38 +60,39 @@ def extract_text_and_meta(html: bytes, url: str) -> tuple[str | None, str | None
         )
         meta = trafilatura.extract_metadata(html, default_url=url)
         title = meta.title if meta and meta.title else None
-        return text, title
+        author = meta.author if meta and meta.author else None
+        return text, title, author
     except Exception as e:
         print(f"[Scraper] trafilatura error for {url}: {e}")
-        return None, None
+        return None, None, None
 
 
 def extract_text(html: bytes, url: str) -> str | None:
     """Backward-compatible wrapper — returns text only."""
-    text, _ = extract_text_and_meta(html, url)
+    text, _, _ = extract_text_and_meta(html, url)
     return text
 
 
 async def scrape_article(
     client: httpx.AsyncClient, url: str
-) -> tuple[str | None, str | None, int | None]:
+) -> tuple[str | None, str | None, str | None, int | None]:
     """
-    Fetch a URL and extract (text, title, http_status).
+    Fetch a URL and extract (text, title, author, http_status).
     http_status is None on network errors, otherwise the HTTP status code.
     """
     try:
         resp = await client.get(url, follow_redirects=True, timeout=20)
         if resp.status_code != 200:
             print(f"[Scraper] HTTP {resp.status_code} for {url}")
-            return None, None, resp.status_code
-        text, title = extract_text_and_meta(resp.content, url)
-        return text, title, 200
+            return None, None, None, resp.status_code
+        text, title, author = extract_text_and_meta(resp.content, url)
+        return text, title, author, 200
     except httpx.TimeoutException:
         print(f"[Scraper] Timeout: {url}")
-        return None, None, None
+        return None, None, None, None
     except Exception as e:
         print(f"[Scraper] Error fetching {url}: {e}")
-        return None, None, None
+        return None, None, None, None
 
 
 async def scrape_missing_articles(
@@ -119,7 +120,7 @@ async def scrape_missing_articles(
             else_=2,
         )
         result = await db.execute(
-            select(Article.id, Article.url, Article.title)
+            select(Article.id, Article.url, Article.title, Article.source_id, Article.author_id)
             .where(Article.raw_text.is_(None))
             .where(Article.minio_key.is_(None))
             .where(Article.url.is_not(None))
@@ -155,10 +156,10 @@ async def scrape_missing_articles(
         "finished_at": None,
     })
 
-    async def scrape_one(article_id, url: str, current_title: str = ""):
+    async def scrape_one(article_id, url: str, current_title: str = "", source_id=None, has_author: bool = False):
         nonlocal scraped, failed
         async with semaphore:
-            text, scraped_title, http_status = await scrape_article(client, url)
+            text, scraped_title, scraped_author, http_status = await scrape_article(client, url)
             if text and len(text) >= min_text_length:
                 async with AsyncSession_() as db:
                     values = {"raw_text": text[:80000], "word_count": len(text.split())}
@@ -180,6 +181,23 @@ async def scrape_missing_articles(
                         print(f"[Scraper] MinIO store failed (non-critical): {me}")
                     await db.execute(update(Article).where(Article.id == article_id).values(**values))
                     await db.commit()
+                # Wire up author from scraped metadata (only when article has no author yet)
+                if scraped_author and not has_author and source_id:
+                    try:
+                        from app.pipelines.gdelt_ingest import split_author_names, get_or_create_author
+                        names = split_author_names(scraped_author)
+                        if names:
+                            async with AsyncSession_() as db_auth:
+                                for i, name in enumerate(names):
+                                    aid = await get_or_create_author(db_auth, name, source_id)
+                                    if i == 0 and aid:
+                                        await db_auth.execute(
+                                            update(Article).where(Article.id == article_id).values(author_id=aid)
+                                        )
+                                await db_auth.commit()
+                            print(f"[Scraper] Author linked: {scraped_author[:60]}")
+                    except Exception as ae:
+                        print(f"[Scraper] Author create failed: {ae}")
                 scraped += 1
                 SCRAPER_STATUS["scraped"] = scraped
                 if scraped % 5 == 0:
@@ -202,7 +220,10 @@ async def scrape_missing_articles(
                         await db.commit()
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=25) as client:
-        tasks = [scrape_one(art_id, url, title or "") for art_id, url, title in articles_to_scrape]
+        tasks = [
+            scrape_one(art_id, url, title or "", source_id, author_id is not None)
+            for art_id, url, title, source_id, author_id in articles_to_scrape
+        ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     SCRAPER_STATUS.update({
