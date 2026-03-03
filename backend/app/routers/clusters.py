@@ -91,6 +91,20 @@ async def list_clusters(
     }
 
 
+@router.get("/by-article/{article_id}")
+async def cluster_for_article(article_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the cluster (if any) that contains the given article."""
+    result = await db.execute(
+        select(StoryCluster)
+        .join(StoryClusterArticle, StoryCluster.id == StoryClusterArticle.cluster_id)
+        .where(StoryClusterArticle.article_id == uuid.UUID(article_id))
+    )
+    cluster = result.scalar_one_or_none()
+    if not cluster:
+        return None
+    return _cluster_dict(cluster)
+
+
 @router.get("/{cluster_id}")
 async def get_cluster(cluster_id: str, db: AsyncSession = Depends(get_db)):
     """Cluster detail: metadata + all member articles with their analysis."""
@@ -162,17 +176,3 @@ def _cluster_dict(c: StoryCluster) -> dict:
         "similarity_threshold": c.similarity_threshold,
         "representative_id": str(c.representative_id) if c.representative_id else None,
     }
-
-
-@router.get("/by-article/{article_id}")
-async def cluster_for_article(article_id: str, db: AsyncSession = Depends(get_db)):
-    """Return the cluster (if any) that contains the given article."""
-    result = await db.execute(
-        select(StoryCluster)
-        .join(StoryClusterArticle, StoryCluster.id == StoryClusterArticle.cluster_id)
-        .where(StoryClusterArticle.article_id == uuid.UUID(article_id))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        return None
-    return _cluster_dict(cluster)
