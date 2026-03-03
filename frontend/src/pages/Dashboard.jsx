@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest, getProvenanceSummary } from '../utils/api'
-import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity, HardDrive, GitBranch } from 'lucide-react'
+import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest, getProvenanceSummary, getClusters } from '../utils/api'
+import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity, HardDrive, GitBranch, Layers } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -65,6 +66,12 @@ export default function Dashboard() {
   const { data: provenanceSummary = [] } = useQuery({
     queryKey: ['provenance-summary'],
     queryFn: getProvenanceSummary,
+    staleTime: 60000,
+  })
+
+  const { data: clustersData } = useQuery({
+    queryKey: ['clusters-summary'],
+    queryFn: () => getClusters({ limit: 4, min_sources: 2 }),
     staleTime: 60000,
   })
 
@@ -419,6 +426,36 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      {/* Story Clusters Summary */}
+      {clustersData?.total > 0 && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Layers size={16} className="text-teal-400" />
+              <h2 className="font-semibold text-white">Story Clusters</h2>
+              <span className="text-xs text-gray-500 ml-1">{clustersData.total} clusters · same story, different slants</span>
+            </div>
+            <Link to="/clusters" className="text-xs text-blue-400 hover:text-blue-300">View all →</Link>
+          </div>
+          <div className="space-y-2">
+            {(clustersData.clusters || []).map(c => {
+              const leanColor = c.avg_lean == null ? 'text-gray-500' : c.avg_lean < -0.2 ? 'text-blue-400' : c.avg_lean > 0.2 ? 'text-red-400' : 'text-green-400'
+              return (
+                <div key={c.id} className="flex items-center gap-3 py-1.5 border-b border-gray-800/50 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate">{c.topic_label || 'Untitled'}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{c.article_count} articles · {c.source_count} outlets</p>
+                  </div>
+                  <span className={`text-xs font-mono shrink-0 ${leanColor}`}>
+                    {c.avg_lean != null ? (c.avg_lean > 0 ? '+' : '') + c.avg_lean.toFixed(2) : '—'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Wire Service Provenance Summary */}
       {provenanceSummary.length > 0 && (
