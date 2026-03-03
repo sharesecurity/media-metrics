@@ -72,6 +72,12 @@ export default function ArticleDetail() {
     queryFn: () => getArticle(id),
   })
 
+  const { data: articleCluster } = useQuery({
+    queryKey: ['cluster-for-article', id],
+    queryFn: () => getClusterForArticle(id),
+    staleTime: 60000,
+  })
+
   // Poll Celery task status while a task is running
   const { data: taskStatus } = useQuery({
     queryKey: ['task-status', activeTaskId],
@@ -151,6 +157,19 @@ export default function ArticleDetail() {
               ? <Link to={`/authors/${article.author_id}`} className="text-blue-400 hover:text-blue-300">{article.author_name}</Link>
               : article.author_name
             }
+          </span>
+        )}
+        {articleCluster && (
+          <span className="flex items-center gap-1">
+            ·
+            <Link
+              to="/clusters"
+              className="flex items-center gap-1 text-teal-400 hover:text-teal-300"
+              title={`Story cluster: ${articleCluster.topic_label}`}
+            >
+              <Layers size={12} />
+              <span className="truncate max-w-xs">{articleCluster.topic_label || 'Story cluster'}</span>
+            </Link>
           </span>
         )}
       </div>
