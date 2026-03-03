@@ -64,7 +64,13 @@ _ORG_KEYWORDS = frozenset([
 def _is_org_byline(name: str) -> bool:
     """Return True if the name looks like an organisation rather than a person."""
     lower_words = set(name.lower().split())
-    return bool(lower_words & _ORG_KEYWORDS)
+    if lower_words & _ORG_KEYWORDS:
+        return True
+    # Reject all-caps strings like "WATCH LIVE", "CNBC STAFF" — these are labels not names
+    words = name.split()
+    if len(words) >= 2 and all(w == w.upper() and w.isalpha() for w in words):
+        return True
+    return False
 
 
 def split_author_names(raw: str) -> list:
