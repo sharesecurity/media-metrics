@@ -9,13 +9,12 @@ import uuid
 COLLECTION = "articles"
 VECTOR_SIZE = 768  # nomic-embed-text output size
 
-_client = None
 
 def get_client() -> AsyncQdrantClient:
-    global _client
-    if _client is None:
-        _client = AsyncQdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
-    return _client
+    """Always return a fresh client so it is bound to the current event loop.
+    The singleton pattern caused 'Event loop is closed' errors in Celery workers
+    because the client held connections from the previous asyncio.run() loop."""
+    return AsyncQdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
 async def ensure_collection():
     client = get_client()
