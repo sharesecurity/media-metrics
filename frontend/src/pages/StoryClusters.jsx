@@ -75,6 +75,15 @@ function ClusterRow({ cluster }) {
               </>
             )}
           </div>
+          {cluster.sources?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {cluster.sources.map(s => (
+                <span key={s} className="text-xs bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">
+                  {s}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="shrink-0 text-right">
           <p className={`text-sm font-mono font-medium ${leanColor}`}>

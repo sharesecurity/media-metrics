@@ -66,9 +66,28 @@ async def list_clusters(
     total_result = await db.execute(select(func.count(StoryCluster.id)))
     total = total_result.scalar() or 0
 
+    # Load unique source names per cluster (for display in list view)
+    cluster_ids = [c.id for c in clusters]
+    sources_by_cluster: dict[str, list[str]] = {str(c.id): [] for c in clusters}
+    if cluster_ids:
+        src_result = await db.execute(
+            select(StoryClusterArticle.cluster_id, Source.name)
+            .join(Article, StoryClusterArticle.article_id == Article.id)
+            .join(Source, Article.source_id == Source.id)
+            .where(StoryClusterArticle.cluster_id.in_(cluster_ids))
+            .distinct()
+        )
+        for row in src_result.all():
+            cid = str(row.cluster_id)
+            if cid in sources_by_cluster:
+                sources_by_cluster[cid].append(row.name)
+
     return {
         "total": total,
-        "clusters": [_cluster_dict(c) for c in clusters],
+        "clusters": [
+            {**_cluster_dict(c), "sources": sorted(sources_by_cluster.get(str(c.id), []))}
+            for c in clusters
+        ],
     }
 
 
