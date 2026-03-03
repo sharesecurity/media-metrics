@@ -110,6 +110,8 @@ async def ingest_kaggle_dataset(
     offset: int = 0,
     publications: Optional[list[str]] = None,
     min_content_length: int = 0,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
 ) -> dict:
     """
     Ingest articles from a Kaggle news dataset into Postgres.
@@ -120,6 +122,8 @@ async def ingest_kaggle_dataset(
         offset: skip this many rows across all files (for paging through large datasets)
         publications: optional list of lowercase publication name substrings to filter
         min_content_length: skip articles shorter than this (0 = allow headlines-only)
+        min_year: only include articles from this year or later (e.g. 2015)
+        max_year: only include articles up to this year (inclusive)
 
     Returns:
         {"inserted": N, "skipped_dup": N, "skipped_short": N, "total_read": N}
@@ -197,6 +201,15 @@ async def ingest_kaggle_dataset(
                     # Discard invalid URLs (javascript:, empty, non-http)
                     if url and not url.startswith(("http://", "https://")):
                         url = None
+
+                    # Apply year filter using already-parsed date
+                    if min_year or max_year:
+                        parsed_dt = _parse_date(raw_date)
+                        year = parsed_dt.year if parsed_dt else 0
+                        if min_year and year < min_year:
+                            continue
+                        if max_year and year > max_year:
+                            continue
 
                     # Skip short content (only enforced for v1/v2 with body text)
                     if not is_headlines and min_content_length > 0 and len(content) < min_content_length:

@@ -90,13 +90,17 @@ async def scrape_missing_articles(
     global SCRAPER_STATUS
     print(f"[Scraper] Starting — limit={limit}, concurrency={concurrency}")
 
-    # Get articles needing text (must have a URL to scrape)
+    # Get articles needing text: must have a URL, not yet failed on a prior run
     async with AsyncSession_() as db:
         result = await db.execute(
             select(Article.id, Article.url, Article.title)
             .where(Article.raw_text.is_(None))
             .where(Article.minio_key.is_(None))
             .where(Article.url.isnot(None))
+            .where(
+                (Article.extra.is_(None)) |
+                (Article.extra["scrape_failed"].as_string() != "true")
+            )
             .limit(limit)
         )
         articles_to_scrape = result.all()
@@ -154,6 +158,14 @@ async def scrape_missing_articles(
             else:
                 failed += 1
                 SCRAPER_STATUS["failed"] = failed
+                # Mark as scrape-failed so future runs skip this article
+                async with AsyncSession_() as db:
+                    await db.execute(
+                        update(Article)
+                        .where(Article.id == article_id)
+                        .values(extra={"scrape_failed": True})
+                    )
+                    await db.commit()
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=25) as client:
         tasks = [scrape_one(art_id, url, title or "") for art_id, url, title in articles_to_scrape]

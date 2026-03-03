@@ -104,12 +104,16 @@ async def _ingest_then_analyze_embedded(limit: int):
 @router.get("/status")
 async def ingest_status(db: AsyncSession = Depends(get_db)):
     """Return scraper + analysis pipeline status."""
-    # Count articles without text (still need scraping)
+    # Count articles still scrapable (have URL, no text, not permanently failed)
     needs_scrape = await db.execute(
         select(func.count(Article.id))
         .where(Article.raw_text.is_(None))
         .where(Article.minio_key.is_(None))
         .where(Article.url.isnot(None))
+        .where(
+            (Article.extra.is_(None)) |
+            (Article.extra["scrape_failed"].as_string() != "true")
+        )
     )
     needs_scrape_count = needs_scrape.scalar() or 0
 
@@ -145,6 +149,8 @@ class KaggleIngestRequest(BaseModel):
     publications: Optional[List[str]] = None  # e.g. ["new york times", "fox"]
     min_content_length: int = 0     # 0 = allow headlines-only rows
     auto_analyze: bool = False      # headlines have no body text to analyze yet
+    min_year: Optional[int] = None  # e.g. 2015 — skip older articles (paywalled/archived)
+    max_year: Optional[int] = None  # e.g. 2023 — skip newer articles
 
 
 @router.post("/kaggle")
@@ -178,6 +184,7 @@ async def kaggle_ingest(req: KaggleIngestRequest, background_tasks: BackgroundTa
         _ingest_kaggle_bg,
         req.version, req.limit, req.offset,
         req.publications, req.min_content_length, req.auto_analyze,
+        req.min_year, req.max_year,
     )
     return {
         "status": "started",
@@ -186,13 +193,16 @@ async def kaggle_ingest(req: KaggleIngestRequest, background_tasks: BackgroundTa
         "offset": req.offset,
         "publications": req.publications or "all",
         "auto_analyze": req.auto_analyze,
+        "min_year": req.min_year,
+        "max_year": req.max_year,
         "message": "Ingesting in background. Check backend logs for progress.",
     }
 
 
 async def _ingest_kaggle_bg(
     version: str, limit: int, offset: int,
-    publications, min_content_length: int, auto_analyze: bool
+    publications, min_content_length: int, auto_analyze: bool,
+    min_year=None, max_year=None,
 ):
     from app.pipelines.kaggle_ingest import ingest_kaggle_dataset
     stats = await ingest_kaggle_dataset(
@@ -201,6 +211,8 @@ async def _ingest_kaggle_bg(
         offset=offset,
         publications=publications,
         min_content_length=min_content_length,
+        min_year=min_year,
+        max_year=max_year,
     )
     if auto_analyze and stats.get("inserted", 0) > 0:
         await _queue_unanalyzed()

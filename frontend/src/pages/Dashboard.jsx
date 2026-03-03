@@ -340,7 +340,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center justify-between text-xs text-gray-500">
               <span>
-                Headlines dataset: no body text — ingest, then "Scrape Text" to fetch full articles.
+                Headlines only (2015+, skips paywalled archives) — ingest then "Scrape Text" to fetch article bodies.
               </span>
               {kaggleStatus?.versions?.headlines?.ready && (
                 <span className="flex items-center gap-2 shrink-0 ml-4">
