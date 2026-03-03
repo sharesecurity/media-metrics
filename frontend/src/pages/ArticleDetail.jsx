@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
-import { getArticle, runAnalysis, getBiasMethods, compareMethodsOnArticle, getTaskStatus } from '../utils/api'
-import { ArrowLeft, Play, ExternalLink, GitCompare, CheckSquare, Square, Loader2 } from 'lucide-react'
+import { getArticle, runAnalysis, getBiasMethods, compareMethodsOnArticle, getTaskStatus, getClusterForArticle } from '../utils/api'
+import { ArrowLeft, Play, ExternalLink, GitCompare, CheckSquare, Square, Loader2, Layers } from 'lucide-react'
 
 const MetricCard = ({ label, value, unit = '', color = 'text-white' }) => (
   <div className="card text-center">

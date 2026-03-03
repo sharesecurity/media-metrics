@@ -94,3 +94,4 @@ export const startScrape = (limit = 50, auto_analyze = false) =>
 export const getClusters = (params = {}) => api.get('/clusters/', { params }).then(r => r.data)
 export const getCluster = (id) => api.get(`/clusters/${id}`).then(r => r.data)
 export const runClustering = (params = {}) => api.post('/clusters/run', null, { params }).then(r => r.data)
+export const getClusterForArticle = (article_id) => api.get(`/clusters/by-article/${article_id}`).then(r => r.data)
