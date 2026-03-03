@@ -90,12 +90,13 @@ async def scrape_missing_articles(
     global SCRAPER_STATUS
     print(f"[Scraper] Starting — limit={limit}, concurrency={concurrency}")
 
-    # Get articles needing text (also grab title so we can detect placeholders)
+    # Get articles needing text (must have a URL to scrape)
     async with AsyncSession_() as db:
         result = await db.execute(
             select(Article.id, Article.url, Article.title)
             .where(Article.raw_text.is_(None))
             .where(Article.minio_key.is_(None))
+            .where(Article.url.isnot(None))
             .limit(limit)
         )
         articles_to_scrape = result.all()

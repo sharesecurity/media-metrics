@@ -194,8 +194,17 @@ async def ingest_kaggle_dataset(
                         if not any(p in pub_lower for p in publications):
                             continue
 
+                    # Discard invalid URLs (javascript:, empty, non-http)
+                    if url and not url.startswith(("http://", "https://")):
+                        url = None
+
                     # Skip short content (only enforced for v1/v2 with body text)
                     if not is_headlines and min_content_length > 0 and len(content) < min_content_length:
+                        stats["skipped_short"] += 1
+                        continue
+
+                    # Skip headlines with no usable URL and no body text
+                    if is_headlines and not url:
                         stats["skipped_short"] += 1
                         continue
 
