@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest, getProvenanceSummary, getClusters } from '../utils/api'
+import { getArticleStats, getSources, startIngest, runAllAnalysis, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest, getProvenanceSummary, getClusters, getPeople } from '../utils/api'
 import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity, HardDrive, GitBranch, Layers } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+
+const KAGGLE_OFFSET_KEY = 'kaggle_headlines_offset'
 
 const BiasGauge = ({ value }) => {
   if (value == null) return <span className="text-gray-500">—</span>
@@ -29,8 +31,15 @@ export default function Dashboard() {
   const [scraping, setScraping] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [kaggleIngesting, setKaggleIngesting] = useState(false)
-  const [kaggleOffset, setKaggleOffset] = useState(0)
+  const [kaggleOffset, setKaggleOffset] = useState(
+    () => parseInt(localStorage.getItem(KAGGLE_OFFSET_KEY) || '0', 10)
+  )
   const [msg, setMsg] = useState('')
+
+  // Persist kaggle offset to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(KAGGLE_OFFSET_KEY, String(kaggleOffset))
+  }, [kaggleOffset])
 
   const { data: stats, refetch: refetchStats } = useQuery({
     queryKey: ['article-stats'],
@@ -40,9 +49,10 @@ export default function Dashboard() {
     queryKey: ['sources'],
     queryFn: getSources,
   })
-  const { data: authors = [] } = useQuery({
-    queryKey: ['authors'],
-    queryFn: getAuthors,
+  const { data: peopleData } = useQuery({
+    queryKey: ['people-count'],
+    queryFn: () => getPeople({ limit: 1, offset: 0 }),
+    staleTime: 60000,
   })
 
   const { data: ingestStatus } = useQuery({
@@ -295,7 +305,7 @@ export default function Dashboard() {
               : null,
           },
           { label: 'News Sources', value: sources?.length ?? '—' },
-          { label: 'Authors', value: authors.length || '—', icon: Users },
+          { label: 'Journalists', value: peopleData?.total ?? '—' },
         ].map(({ label, value, sub }) => (
           <div key={label} className="card">
             <p className="text-gray-500 text-xs uppercase tracking-wider">{label}</p>
