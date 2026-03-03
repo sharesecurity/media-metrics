@@ -47,7 +47,7 @@ export const getIngestSources = () => api.get('/ingest/sources').then(r => r.dat
 export const getIngestStatus = () => api.get('/ingest/status').then(r => r.data)
 export const getKaggleStatus = () => api.get('/ingest/kaggle/status').then(r => r.data)
 export const startKaggleIngest = (opts = {}) =>
-  api.post('/ingest/kaggle', { version: 'v1', limit: 1000, auto_analyze: true, ...opts }).then(r => r.data)
+  api.post('/ingest/kaggle', { version: 'headlines', limit: 5000, auto_analyze: false, ...opts }).then(r => r.data)
 
 // Chat
 export const askChat = (message, context = '') =>

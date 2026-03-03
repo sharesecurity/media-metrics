@@ -1,35 +1,42 @@
 """
-Kaggle "All the News" dataset ingest pipeline.
+Kaggle news dataset ingest pipeline.
 
-Supports two dataset versions:
-  v1  snapcrack/all-the-news  — articles1/2/3.csv
+Supports three dataset versions:
+  headlines  jordankrishnayah/45m-headlines-from-2007-2022-10-largest-sites
+             Columns: Date, Publication, Headline, URL
+             4.4M rows, 10 outlets (NYT, WaPo, Fox, CNN, Guardian, BBC, etc.), 2007-2023
+             ✓ Available/working — downloaded to LabStorage
+
+  v1  snapcrack/all-the-news  (REMOVED from Kaggle — kept for compatibility)
       Columns: id, title, publication, author, date, year, month, url, content
-  v2  a2rad/all-the-news-2-1  — all-the-news-2-1.csv
+
+  v2  a2rad/all-the-news-2-1  (REMOVED from Kaggle — kept for compatibility)
       Columns: date, year, month, day, author, title, article, url, section, publication
 
 Data directory layout on LabStorage:
+  /Volumes/LabStorage/media_metrics/raw_articles/headlines/headlines.csv
   /Volumes/LabStorage/media_metrics/raw_articles/v1/articles1.csv  (etc.)
   /Volumes/LabStorage/media_metrics/raw_articles/v2/all-the-news-2-1.csv
 
-Call ingest_kaggle_dataset() from the router or as a script.
+For the `headlines` dataset: articles are ingested with headline as title + URL stored.
+The scraper can then fetch full article text from those URLs.
 """
 from __future__ import annotations
 
 import csv
-import os
 import uuid
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 DATA_ROOT = Path("/Volumes/LabStorage/media_metrics/raw_articles")
 
-# Kaggle source slugs → DB source names
-# Map publication name → existing seeded source name (case-insensitive substring match)
+# Map publication name → our standard source name (case-insensitive substring match)
 _PUB_MAP: dict[str, str] = {
     "new york times":       "The New York Times",
     "nytimes":              "The New York Times",
     "fox news":             "Fox News",
+    "fox":                  "Fox News",
     "reuters":              "Reuters",
     "associated press":     "AP News",
     "guardian":             "The Guardian",
@@ -54,6 +61,11 @@ _PUB_MAP: dict[str, str] = {
     "techcrunch":           "TechCrunch",
     "wired":                "Wired",
     "verge":                "The Verge",
+    "daily mail":           "Daily Mail",
+    "new york post":        "New York Post",
+    "bbc":                  "BBC",
+    "cnbc":                 "CNBC",
+    "usa today":            "USA Today",
 }
 
 
@@ -63,18 +75,17 @@ def _map_publication(pub: str) -> str:
     for key, val in _PUB_MAP.items():
         if key in lower or lower in key:
             return val
-    # Fall back: title-case the raw name
     return pub.strip().title()
 
 
 def _parse_date(raw: str) -> Optional[datetime]:
-    """Try common date formats used in the Kaggle dataset."""
+    """Parse dates in various formats used across the Kaggle datasets."""
     raw = (raw or "").strip()
     if not raw:
         return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y", "%Y"):
+    for fmt in ("%Y%m%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y", "%Y"):
         try:
-            return datetime.strptime(raw[:len(fmt) + 2], fmt)
+            return datetime.strptime(raw[:len(fmt)], fmt)
         except ValueError:
             continue
     return None
@@ -87,27 +98,28 @@ def _csv_files(version: str) -> list[Path]:
         return []
     if version == "v1":
         return sorted(root.glob("articles*.csv"))
-    elif version == "v2":
+    elif version == "headlines":
         return sorted(root.glob("*.csv"))
-    return sorted(root.glob("*.csv"))
+    else:  # v2 or any other
+        return sorted(root.glob("*.csv"))
 
 
 async def ingest_kaggle_dataset(
-    version: str = "v1",
+    version: str = "headlines",
     limit: int = 5000,
     offset: int = 0,
     publications: Optional[list[str]] = None,
-    min_content_length: int = 200,
+    min_content_length: int = 0,
 ) -> dict:
     """
-    Ingest articles from the Kaggle dataset into Postgres.
+    Ingest articles from a Kaggle news dataset into Postgres.
 
     Args:
-        version: "v1" or "v2"
-        limit: max articles to insert (per call)
-        offset: skip this many rows across all files
-        publications: if set, only ingest these publication names (lowercase substrings)
-        min_content_length: skip articles shorter than this many characters
+        version: "headlines" (recommended), "v1", or "v2"
+        limit: max articles to insert per call
+        offset: skip this many rows across all files (for paging through large datasets)
+        publications: optional list of lowercase publication name substrings to filter
+        min_content_length: skip articles shorter than this (0 = allow headlines-only)
 
     Returns:
         {"inserted": N, "skipped_dup": N, "skipped_short": N, "total_read": N}
@@ -122,14 +134,14 @@ async def ingest_kaggle_dataset(
     if not csv_files:
         raise FileNotFoundError(
             f"No CSV files found at {DATA_ROOT / version}. "
-            "Run: python scripts/download_kaggle_data.py --dataset "
-            + version
+            f"Run: python scripts/download_kaggle_data.py --dataset {version}"
         )
 
     stats = {"inserted": 0, "skipped_dup": 0, "skipped_short": 0, "total_read": 0}
+    is_headlines = version == "headlines"
 
     async with AsyncSessionLocal() as db:
-        # Pre-load sources into a lookup dict
+        # Pre-load sources
         result = await db.execute(select(Source))
         all_sources = result.scalars().all()
         source_map: dict[str, uuid.UUID] = {s.name: s.id for s in all_sources}
@@ -160,13 +172,21 @@ async def ingest_kaggle_dataset(
                     if stats["inserted"] >= limit:
                         break
 
-                    # --- Extract fields (handle v1 and v2 column names) ---
-                    title   = (row.get("title") or "").strip()
-                    pub     = (row.get("publication") or "").strip()
-                    author  = (row.get("author") or "").strip()
-                    url     = (row.get("url") or "").strip() or None
-                    content = (row.get("content") or row.get("article") or "").strip()
-                    raw_date = row.get("date") or ""
+                    # --- Extract fields based on format ---
+                    if is_headlines:
+                        title   = (row.get("Headline") or "").strip()
+                        pub     = (row.get("Publication") or "").strip()
+                        author  = ""
+                        url     = (row.get("URL") or "").strip() or None
+                        content = ""  # no body text in this dataset
+                        raw_date = row.get("Date") or ""
+                    else:
+                        title   = (row.get("title") or "").strip()
+                        pub     = (row.get("publication") or "").strip()
+                        author  = (row.get("author") or "").strip()
+                        url     = (row.get("url") or "").strip() or None
+                        content = (row.get("content") or row.get("article") or "").strip()
+                        raw_date = row.get("date") or ""
 
                     # Filter by publication if requested
                     if publications:
@@ -174,8 +194,13 @@ async def ingest_kaggle_dataset(
                         if not any(p in pub_lower for p in publications):
                             continue
 
-                    # Skip short/empty content
-                    if len(content) < min_content_length:
+                    # Skip short content (only enforced for v1/v2 with body text)
+                    if not is_headlines and min_content_length > 0 and len(content) < min_content_length:
+                        stats["skipped_short"] += 1
+                        continue
+
+                    # Skip missing title
+                    if not title:
                         stats["skipped_short"] += 1
                         continue
 
@@ -200,7 +225,7 @@ async def ingest_kaggle_dataset(
 
                     source_id = source_map[source_name]
 
-                    # --- Resolve or create Author ---
+                    # --- Resolve or create Author (only for v1/v2) ---
                     author_id = None
                     if author and len(author) > 2:
                         auth_result = await db.execute(
@@ -228,32 +253,31 @@ async def ingest_kaggle_dataset(
                     # --- Parse date ---
                     published_at = _parse_date(raw_date)
 
-                    # --- Build article text (title + content) ---
-                    full_text = f"{title}\n\n{content}" if title else content
-
-                    # --- Create Article record ---
+                    # --- Create Article ---
                     article = Article(
                         id=uuid.uuid4(),
-                        title=title or f"Article from {source_name}",
+                        title=title,
                         url=url,
                         source_id=source_id,
                         author_id=author_id,
                         published_at=published_at,
                         ingested_at=datetime.utcnow(),
                         source_name=source_name,
-                        raw_text=None,  # will store in MinIO below
+                        raw_text=None,
                     )
                     db.add(article)
                     await db.flush()
 
-                    # --- Store full text in MinIO ---
-                    try:
-                        minio_key = await store_article_text(str(article.id), full_text)
-                        article.minio_key = minio_key
-                    except Exception as e:
-                        # MinIO failure is non-critical; store in Postgres as fallback
-                        article.raw_text = full_text[:50000]
-                        print(f"[Kaggle] MinIO fallback for {article.id}: {e}")
+                    # --- Store content if available ---
+                    if content:
+                        full_text = f"{title}\n\n{content}"
+                        try:
+                            minio_key = await store_article_text(str(article.id), full_text)
+                            article.minio_key = minio_key
+                        except Exception as e:
+                            article.raw_text = full_text[:50000]
+                            print(f"[Kaggle] MinIO fallback for {article.id}: {e}")
+                    # For headlines-only: leave raw_text=None, URL present → scraper picks it up
 
                     await db.commit()
 
@@ -261,10 +285,10 @@ async def ingest_kaggle_dataset(
                         existing_urls.add(url)
                     stats["inserted"] += 1
 
-                    if stats["inserted"] % 100 == 0:
+                    if stats["inserted"] % 500 == 0:
                         print(
                             f"[Kaggle] Inserted {stats['inserted']}/{limit} "
-                            f"(skipped dup={stats['skipped_dup']}, short={stats['skipped_short']})"
+                            f"(dup={stats['skipped_dup']}, short={stats['skipped_short']})"
                         )
 
     print(

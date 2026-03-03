@@ -139,21 +139,23 @@ async def list_sources():
 # ---------------------------------------------------------------------------
 
 class KaggleIngestRequest(BaseModel):
-    version: str = "v1"             # "v1" (210K articles) or "v2" (2.7M articles)
+    version: str = "headlines"      # "headlines" (4.4M, 10 outlets, 2007-2023) | "v1" | "v2"
     limit: int = 1000               # max articles per call
     offset: int = 0                 # row offset across CSV files
     publications: Optional[List[str]] = None  # e.g. ["new york times", "fox"]
-    min_content_length: int = 200   # skip articles shorter than this
-    auto_analyze: bool = True       # queue bias analysis after ingest
+    min_content_length: int = 0     # 0 = allow headlines-only rows
+    auto_analyze: bool = False      # headlines have no body text to analyze yet
 
 
 @router.post("/kaggle")
 async def kaggle_ingest(req: KaggleIngestRequest, background_tasks: BackgroundTasks):
     """
-    Ingest articles from the Kaggle 'All the News' dataset stored on LabStorage.
+    Ingest articles from a Kaggle news dataset stored on LabStorage.
 
-    Dataset must be downloaded first:
-        python scripts/download_kaggle_data.py --dataset v1
+    Recommended dataset:
+      headlines  jordankrishnayah/45m-headlines-from-2007-2022-10-largest-sites
+                 4.4M headlines, 10 outlets (NYT, WaPo, Fox, CNN, BBC, etc.), 2007-2023
+                 Already available at: /Volumes/LabStorage/media_metrics/raw_articles/headlines/
     Data directory: /Volumes/LabStorage/media_metrics/raw_articles/{v1,v2}/
 
     Each call processes `limit` articles starting at `offset`.
@@ -211,7 +213,7 @@ async def kaggle_status():
     import os
 
     versions = {}
-    for version in ("v1", "v2"):
+    for version in ("headlines", "v1", "v2"):
         files = _csv_files(version)
         size_gb = sum(f.stat().st_size for f in files) / 1e9 if files else 0
         versions[version] = {

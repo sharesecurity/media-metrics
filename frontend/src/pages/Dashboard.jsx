@@ -61,15 +61,16 @@ export default function Dashboard() {
     staleTime: 30000,
   })
 
-  const handleKaggleIngest = async (version = 'v1', limit = 1000) => {
+  const handleKaggleIngest = async (version = 'headlines', limit = 5000) => {
     setKaggleIngesting(true)
-    setMsg(`Starting Kaggle ingest: ${limit.toLocaleString()} articles from All the News ${version.toUpperCase()} dataset...`)
+    const label = version === 'headlines' ? '4.4M Headlines dataset' : `All the News ${version.toUpperCase()}`
+    setMsg(`Starting Kaggle ingest: ${limit.toLocaleString()} headlines from ${label}...`)
     try {
-      const res = await startKaggleIngest({ version, limit })
+      const res = await startKaggleIngest({ version, limit, auto_analyze: false })
       if (res.error) {
         setMsg(`Kaggle: ${res.error}`)
       } else {
-        setMsg(`Kaggle ingest started! Inserting up to ${limit.toLocaleString()} articles in background. Auto-analysis will queue when done.`)
+        setMsg(`Kaggle ingest started! Inserting up to ${limit.toLocaleString()} headlines in background. Run "Scrape Text" afterward to fetch full article content.`)
         setTimeout(() => refetchStats(), 15000)
         setTimeout(() => refetchStats(), 60000)
       }
@@ -289,37 +290,44 @@ export default function Dashboard() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <HardDrive size={16} className="text-orange-400" />
-            <h2 className="font-semibold text-white">Bulk Historical Data — Kaggle "All the News"</h2>
+            <h2 className="font-semibold text-white">Bulk Historical Data — Kaggle Headlines</h2>
           </div>
           {kaggleStatus && (
             <span className={`text-xs px-2 py-0.5 rounded-full ${
-              kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready
+              kaggleStatus.versions?.headlines?.ready || kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready
                 ? 'bg-green-900/40 text-green-300 border border-green-700'
                 : 'bg-yellow-900/40 text-yellow-300 border border-yellow-700'
             }`}>
-              {kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready ? 'Data ready' : 'Not downloaded'}
+              {kaggleStatus.versions?.headlines?.ready || kaggleStatus.versions?.v1?.ready || kaggleStatus.versions?.v2?.ready ? 'Data ready' : 'Not downloaded'}
             </span>
           )}
         </div>
 
-        {kaggleStatus?.versions?.v1?.ready || kaggleStatus?.versions?.v2?.ready ? (
+        {kaggleStatus?.versions?.headlines?.ready || kaggleStatus?.versions?.v1?.ready || kaggleStatus?.versions?.v2?.ready ? (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              {['v1', 'v2'].map(ver => {
-                const v = kaggleStatus.versions?.[ver]
+              {[
+                { key: 'headlines', label: '4.4M Headlines — 10 outlets (2007–2023)', limits: [5000, 25000, 100000] },
+                { key: 'v1', label: 'All the News v1 — ~210K articles (2012–2018)', limits: [1000, 5000, 25000] },
+                { key: 'v2', label: 'All the News v2 — ~2.7M articles (2016–2020)', limits: [1000, 5000, 25000] },
+              ].map(({ key, label, limits }) => {
+                const v = kaggleStatus.versions?.[key]
                 if (!v?.ready) return null
                 return (
-                  <div key={ver} className="bg-gray-800 rounded-lg p-3">
-                    <div className="text-white font-medium">v{ver === 'v1' ? '1' : '2'} — {ver === 'v1' ? '~210K articles (2012–2018)' : '~2.7M articles (2016–2020)'}</div>
+                  <div key={key} className="bg-gray-800 rounded-lg p-3">
+                    <div className="text-white font-medium">{label}</div>
                     <div className="text-gray-400 mt-1">{v.file_count} file{v.file_count !== 1 ? 's' : ''} · {v.size_gb} GB</div>
+                    {key === 'headlines' && (
+                      <div className="text-gray-500 text-xs mt-1">NYT · WaPo · Fox · CNN · BBC · Guardian · Daily Mail · NY Post · CNBC · USA Today</div>
+                    )}
                     <div className="flex gap-2 mt-2">
-                      {[1000, 5000, 25000].map(n => (
+                      {limits.map(n => (
                         <button key={n}
-                          onClick={() => handleKaggleIngest(ver, n)}
+                          onClick={() => handleKaggleIngest(key, n)}
                           disabled={kaggleIngesting}
                           className="px-2 py-1 text-xs bg-orange-700 hover:bg-orange-600 disabled:opacity-50 text-white rounded transition-colors"
                         >
-                          {kaggleIngesting ? '…' : `+${n >= 1000 ? n/1000+'K' : n}`}
+                          {kaggleIngesting ? '…' : `+${n >= 1000 ? (n/1000)+'K' : n}`}
                         </button>
                       ))}
                     </div>
@@ -327,18 +335,21 @@ export default function Dashboard() {
                 )
               })}
             </div>
-            <p className="text-gray-500 text-xs">Each button ingests N more articles (with auto-analysis). Call repeatedly to page through the full dataset.</p>
+            <p className="text-gray-500 text-xs">
+              Headlines dataset: no body text — ingest headlines, then run "Scrape Text" to fetch full articles from URLs.
+              Call repeatedly with increasing offsets to page through the full dataset.
+            </p>
           </div>
         ) : (
           <div className="text-sm text-gray-400 space-y-2">
-            <p>Download the dataset once to unlock bulk historical ingestion (up to 2.7M articles from 25+ outlets).</p>
+            <p>Download the dataset once to unlock bulk historical ingestion (4.4M headlines from 10 major outlets, 2007–2023).</p>
             <div className="bg-gray-800 rounded-lg p-3 font-mono text-xs text-gray-300 space-y-1">
               <div className="text-gray-500"># 1. Add Kaggle API token → ~/.kaggle/kaggle.json</div>
               <div className="text-gray-500">#    https://www.kaggle.com/settings → API → Create New Token</div>
-              <div>python scripts/download_kaggle_data.py --dataset v1</div>
-              <div className="text-gray-500"># v1: ~210K articles, ~500MB. v2: ~2.7M articles, ~9GB</div>
+              <div>python scripts/download_kaggle_data.py --dataset headlines</div>
+              <div className="text-gray-500"># ~714 MB · NYT, WaPo, Fox, CNN, BBC, Guardian, Daily Mail, NY Post, CNBC, USA Today</div>
             </div>
-            <p className="text-gray-500 text-xs">Data saved to: /Volumes/LabStorage/media_metrics/raw_articles/</p>
+            <p className="text-gray-500 text-xs">Data saved to: /Volumes/LabStorage/media_metrics/raw_articles/headlines/</p>
           </div>
         )}
       </div>
