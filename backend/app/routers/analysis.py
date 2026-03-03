@@ -272,9 +272,19 @@ async def get_task_status(task_id: str):
 @router.get("/queue-stats")
 async def queue_stats():
     """
-    Live counts of active and reserved tasks from all workers.
+    Live counts of active and reserved tasks from all workers, plus raw Redis
+    queue depth (true backlog regardless of prefetch settings).
     Returns zeroes if no workers are connected.
     """
+    import os
+    redis_backlog = 0
+    try:
+        import redis as _redis
+        r = _redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        redis_backlog = r.llen("default") or 0
+    except Exception:
+        pass
+
     try:
         from app.worker import celery_app
         inspect = celery_app.control.inspect(timeout=2.0)
@@ -284,9 +294,10 @@ async def queue_stats():
             "workers": list(active.keys()),
             "active": sum(len(v) for v in active.values()),
             "queued": sum(len(v) for v in reserved.values()),
+            "redis_backlog": redis_backlog,
         }
     except Exception as exc:
-        return {"workers": [], "active": 0, "queued": 0, "error": str(exc)}
+        return {"workers": [], "active": 0, "queued": 0, "redis_backlog": redis_backlog, "error": str(exc)}
 
 
 @router.get("/source-summary")

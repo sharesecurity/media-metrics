@@ -257,7 +257,11 @@ export default function Dashboard() {
                       {queueStats.active > 0
                         ? <span className="text-yellow-300">{queueStats.active} running</span>
                         : <span className="text-gray-400">idle</span>}
-                      {queueStats.queued > 0 && <span className="text-gray-400 ml-1">· {queueStats.queued} queued</span>}
+                      {(queueStats.redis_backlog ?? 0) > 0
+                        ? <span className="text-orange-400 ml-1">· {queueStats.redis_backlog} in queue</span>
+                        : queueStats.queued > 0
+                          ? <span className="text-gray-400 ml-1">· {queueStats.queued} queued</span>
+                          : null}
                     </p>
                   ) : (
                     <p className="text-sm text-gray-600">No workers connected</p>
