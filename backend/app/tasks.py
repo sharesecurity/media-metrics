@@ -65,6 +65,24 @@ def scheduled_rss_ingest():
 
 
 @celery_app.task(
+    name="app.tasks.scheduled_clustering",
+)
+def scheduled_clustering():
+    """
+    Celery Beat scheduled task: re-run story clustering on all Qdrant-indexed articles.
+    Runs daily (configurable via CLUSTERING_INTERVAL_HOURS env var).
+    """
+    async def _run():
+        from app.pipelines.story_clustering import run_clustering
+        print("[Beat] Starting scheduled story clustering…")
+        result = await run_clustering()
+        print(f"[Beat] Clustering done: {result.get('clusters_found', 0)} clusters")
+        return result
+
+    return asyncio.run(_run())
+
+
+@celery_app.task(
     bind=True,
     name="app.tasks.rebuild_embeddings",
     max_retries=1,

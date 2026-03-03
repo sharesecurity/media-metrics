@@ -25,6 +25,8 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
+    # Route all tasks to the "default" queue (matches worker -Q default flag)
+    task_default_queue="default",
     # One task at a time — Ollama inference is the bottleneck
     worker_prefetch_multiplier=1,
     # Only ack after the task actually finishes (safe for retries)
@@ -39,11 +41,17 @@ celery_app.conf.update(
 # Runs in the celery-beat container; worker picks up and executes the tasks.
 # Interval controlled by RSS_INGEST_INTERVAL_HOURS env var (default: 6).
 _rss_interval_hours = float(os.getenv("RSS_INGEST_INTERVAL_HOURS", "6"))
+_clustering_interval_hours = float(os.getenv("CLUSTERING_INTERVAL_HOURS", "24"))
 
 celery_app.conf.beat_schedule = {
     # Fetch RSS feeds on a configurable interval and queue analysis for new articles
     "scheduled-rss-ingest": {
         "task": "app.tasks.scheduled_rss_ingest",
         "schedule": timedelta(hours=_rss_interval_hours),
+    },
+    # Re-run story clustering daily to incorporate newly analyzed articles
+    "scheduled-clustering": {
+        "task": "app.tasks.scheduled_clustering",
+        "schedule": timedelta(hours=_clustering_interval_hours),
     },
 }
