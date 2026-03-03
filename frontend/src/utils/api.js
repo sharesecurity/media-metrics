@@ -81,6 +81,7 @@ export const getOrganizations = (org_type = null) =>
 export const getOrganization = (id) => api.get(`/entities/organizations/${id}`).then(r => r.data)
 export const getPeople = (params = {}) => api.get('/entities/people', { params }).then(r => r.data)
 export const getPersonDetail = (id) => api.get(`/entities/people/${id}`).then(r => r.data)
+export const getPersonArticles = (id, limit = 50) => api.get(`/entities/people/${id}/articles`, { params: { limit } }).then(r => r.data)
 export const getProvenanceSummary = () => api.get('/entities/provenance/summary').then(r => r.data)
 
 // Kaggle ingest

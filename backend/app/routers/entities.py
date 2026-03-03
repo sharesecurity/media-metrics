@@ -4,9 +4,9 @@ Entity Graph API — organizations, people, and seeding endpoints.
 Seeding (POST /api/entities/seed) creates Organization and Person records
 from existing sources/authors data and wires up the bridge FK columns.
 """
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, desc
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.database import get_db
 from app.models import (
@@ -181,7 +181,6 @@ async def get_organization(org_id: str, db: AsyncSession = Depends(get_db)):
     )
     org = result.scalar_one_or_none()
     if not org:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Organization not found")
 
     # Count articles published by sources linked to this org
@@ -278,7 +277,6 @@ async def get_person(person_id: str, db: AsyncSession = Depends(get_db)):
     )
     person = result.scalar_one_or_none()
     if not person:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Person not found")
 
     # Career history
@@ -332,6 +330,78 @@ async def get_person(person_id: str, db: AsyncSession = Depends(get_db)):
         ],
         "linked_author_ids": [str(a.id) for a in authors],
     }
+
+
+@router.get("/people/{person_id}/articles")
+async def get_person_articles(
+    person_id: str,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return recent articles by this person, aggregated across all linked Author records.
+    Includes political lean from the latest analysis result.
+    """
+    # Resolve person
+    person_result = await db.execute(
+        select(Person).where(Person.id == uuid.UUID(person_id))
+    )
+    person = person_result.scalar_one_or_none()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    # All linked author IDs
+    author_result = await db.execute(
+        select(Author.id).where(Author.person_id == person.id)
+    )
+    author_ids = [r[0] for r in author_result.all()]
+    if not author_ids:
+        return []
+
+    # Latest analysis per article (subquery)
+    latest_analysis = (
+        select(
+            AnalysisResult.article_id,
+            AnalysisResult.sentiment_score,
+            AnalysisResult.political_lean,
+        )
+        .distinct(AnalysisResult.article_id)
+        .order_by(AnalysisResult.article_id, desc(AnalysisResult.analyzed_at))
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(
+            Article.id, Article.title, Article.url, Article.published_at,
+            Article.section, Article.word_count,
+            Source.name.label("source_name"),
+            Author.name.label("author_name"),
+            latest_analysis.c.sentiment_score,
+            latest_analysis.c.political_lean,
+        )
+        .outerjoin(Source, Article.source_id == Source.id)
+        .outerjoin(Author, Article.author_id == Author.id)
+        .outerjoin(latest_analysis, Article.id == latest_analysis.c.article_id)
+        .where(Article.author_id.in_(author_ids))
+        .order_by(desc(Article.published_at))
+        .limit(limit)
+    )
+    rows = result.all()
+    return [
+        {
+            "id": str(r.id),
+            "title": r.title,
+            "url": r.url,
+            "published_at": r.published_at.isoformat() if r.published_at else None,
+            "section": r.section,
+            "word_count": r.word_count,
+            "source_name": r.source_name,
+            "author_name": r.author_name,
+            "sentiment_score": round(r.sentiment_score, 3) if r.sentiment_score is not None else None,
+            "political_lean": round(r.political_lean, 3) if r.political_lean is not None else None,
+        }
+        for r in rows
+    ]
 
 
 # ── Provenance Summary ────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, User, Building2, Briefcase } from 'lucide-react'
-import { getPersonDetail, getArticlesByAuthor } from '../utils/api'
+import { getPersonDetail, getPersonArticles } from '../utils/api'
 
 const GENDER_COLORS = {
   male: '#3b82f6', female: '#ec4899', mostly_male: '#60a5fa',
@@ -86,12 +86,11 @@ export default function PersonDetail() {
     queryFn: () => getPersonDetail(id),
   })
 
-  // Load articles via linked author IDs (use first author id)
-  const firstAuthorId = person?.linked_author_ids?.[0]
+  // Load articles via dedicated person endpoint (aggregates all linked author IDs)
   const { data: articles = [], isLoading: articlesLoading } = useQuery({
-    queryKey: ['articles-by-author', firstAuthorId],
-    queryFn: () => getArticlesByAuthor(firstAuthorId, 50),
-    enabled: !!firstAuthorId,
+    queryKey: ['person-articles', id],
+    queryFn: () => getPersonArticles(id, 50),
+    enabled: !!person,
   })
 
   if (isLoading) return <div className="p-6 text-gray-400">Loading...</div>

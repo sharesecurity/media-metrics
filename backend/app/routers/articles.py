@@ -30,6 +30,7 @@ async def list_articles(
     skip: int = 0,
     limit: int = 50,
     source_id: Optional[str] = None,
+    author_id: Optional[str] = None,
     section: Optional[str] = None,
     analyzed_only: bool = False,
     lean_min: Optional[float] = None,
@@ -73,6 +74,8 @@ async def list_articles(
 
     if source_id:
         q = q.where(Article.source_id == uuid.UUID(source_id))
+    if author_id:
+        q = q.where(Article.author_id == uuid.UUID(author_id))
     if section:
         q = q.where(Article.section == section)
     if lean_min is not None:
