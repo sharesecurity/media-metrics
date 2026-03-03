@@ -29,6 +29,11 @@ def _dispose_inherited_db_pool(**kwargs):
         core_engine.sync_engine.dispose()
     except Exception:
         pass
+    try:
+        from app.pipelines.story_clustering import engine as cluster_engine
+        cluster_engine.sync_engine.dispose()
+    except Exception:
+        pass
 
 
 @celery_app.task(
@@ -97,6 +102,12 @@ def scheduled_clustering():
     Celery Beat scheduled task: re-run story clustering on all Qdrant-indexed articles.
     Runs daily (configurable via CLUSTERING_INTERVAL_HOURS env var).
     """
+    try:
+        from app.pipelines.story_clustering import engine as cluster_engine
+        cluster_engine.sync_engine.dispose()
+    except Exception:
+        pass
+
     async def _run():
         from app.pipelines.story_clustering import run_clustering
         print("[Beat] Starting scheduled story clustering…")
