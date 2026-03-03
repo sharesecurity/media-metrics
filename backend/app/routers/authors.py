@@ -246,20 +246,42 @@ async def fix_compound_authors(background_tasks: BackgroundTasks):
 
 async def _do_fix_compound():
     """
-    Background task — split compound Author records into individual ones.
+    Background task — two-pass cleanup of Author records:
+      Pass 1: remove records whose name is an organisation byline
+              (e.g. "NPR Washington Desk", "Associated Press").
+      Pass 2: split compound names into individual Author records
+              (e.g. "Evan Halper, Rachel Siegel" → two rows).
     """
     import re
     from app.core.database import AsyncSessionLocal
-    from app.pipelines.gdelt_ingest import split_author_names, get_or_create_author
+    from app.pipelines.gdelt_ingest import split_author_names, get_or_create_author, _is_org_byline
 
     fixed = 0
+    removed_orgs = 0
     skipped = 0
 
     async with AsyncSessionLocal() as db:
-        # Find authors whose name looks compound (contains separator patterns)
         result = await db.execute(select(Author))
         all_authors = result.scalars().all()
 
+        # Pass 1 — remove org-byline authors
+        for author in all_authors:
+            if not author.name:
+                continue
+            if _is_org_byline(author.name):
+                print(f"[fix-compound] Removing org byline '{author.name}'")
+                await db.execute(
+                    update(Article).where(Article.author_id == author.id).values(author_id=None)
+                )
+                await db.execute(delete(Author).where(Author.id == author.id))
+                await db.commit()
+                removed_orgs += 1
+
+        # Refresh list after deletions
+        result = await db.execute(select(Author))
+        all_authors = result.scalars().all()
+
+        # Pass 2 — split compound names
         for author in all_authors:
             if not author.name:
                 continue
@@ -294,4 +316,4 @@ async def _do_fix_compound():
             await db.commit()
             fixed += 1
 
-    print(f"[fix-compound] Done — split {fixed} compound authors, skipped {skipped} clean ones")
+    print(f"[fix-compound] Done — removed {removed_orgs} org bylines, split {fixed} compound authors, skipped {skipped} clean ones")
