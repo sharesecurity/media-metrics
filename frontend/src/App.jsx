@@ -13,6 +13,7 @@ import AuthorDetail from './pages/AuthorDetail'
 import AuthorComparison from './pages/AuthorComparison'
 import Organizations from './pages/Organizations'
 import OrganizationDetail from './pages/OrganizationDetail'
+import SourceDetail from './pages/SourceDetail'
 import People from './pages/People'
 import PersonDetail from './pages/PersonDetail'
 import StoryClusters from './pages/StoryClusters'
@@ -87,6 +88,7 @@ export default function App() {
           <Route path="/author-compare" element={<AuthorComparison />} />
           <Route path="/organizations" element={<Organizations />} />
           <Route path="/organizations/:id" element={<OrganizationDetail />} />
+          <Route path="/sources/:id" element={<SourceDetail />} />
           <Route path="/people" element={<People />} />
           <Route path="/people/:id" element={<PersonDetail />} />
           <Route path="/chat" element={<Chat />} />

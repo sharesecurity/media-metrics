@@ -174,7 +174,7 @@ function BySourceTab() {
         <StatTable
           rows={summary}
           columns={[
-            { key: 'name', label: 'Source', render: (v) => <span className="text-white font-medium">{v}</span> },
+            { key: 'name', label: 'Source', render: (v, row) => <Link to={`/sources/${row.id}`} className="text-white hover:text-blue-400 font-medium">{v}</Link> },
             { key: 'article_count', label: 'Articles', right: true, render: (v) => <span className="text-gray-400">{v}</span> },
             { key: 'analyzed_count', label: 'Analyzed', right: true, render: (v) => <span className="text-gray-400">{v}</span> },
             {

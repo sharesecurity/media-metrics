@@ -30,6 +30,7 @@ export const getByDemographicBySource = (group_by = 'gender') =>
 
 // Sources
 export const getSources = () => api.get('/sources/').then(r => r.data)
+export const getSource = (id) => api.get(`/sources/${id}`).then(r => r.data)
 
 // Search — keyword
 export const searchArticles = (q, limit = 20) => api.get('/search/', { params: { q, limit } }).then(r => r.data)
