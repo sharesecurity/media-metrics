@@ -316,4 +316,27 @@ async def _do_fix_compound():
             await db.commit()
             fixed += 1
 
+    # Pass 3 — mirror cleanup into the people table
+    from app.models import Person, PersonOrganization
+    try:
+        async with AsyncSessionLocal() as db:
+            people_result = await db.execute(select(Person))
+            all_people = people_result.scalars().all()
+            removed_people = 0
+            for person in all_people:
+                if not person.full_name:
+                    continue
+                if _is_org_byline(person.full_name) or len(split_author_names(person.full_name)) >= 2:
+                    print(f"[fix-compound] Removing bad person record '{person.full_name}'")
+                    await db.execute(
+                        delete(PersonOrganization).where(PersonOrganization.person_id == person.id)
+                    )
+                    await db.execute(delete(Person).where(Person.id == person.id))
+                    await db.commit()
+                    removed_people += 1
+            if removed_people:
+                print(f"[fix-compound] Removed {removed_people} bad person records from people table")
+    except Exception as e:
+        print(f"[fix-compound] people table cleanup error: {e}")
+
     print(f"[fix-compound] Done — removed {removed_orgs} org bylines, split {fixed} compound authors, skipped {skipped} clean ones")
