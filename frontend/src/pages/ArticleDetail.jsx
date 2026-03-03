@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
-import { getArticle, runAnalysis, getBiasMethods, compareMethodsOnArticle, getTaskStatus } from '../utils/api'
-import { ArrowLeft, Play, ExternalLink, GitCompare, CheckSquare, Square, Loader2 } from 'lucide-react'
+import { getArticle, runAnalysis, getBiasMethods, compareMethodsOnArticle, getTaskStatus, getClusterForArticle } from '../utils/api'
+import { ArrowLeft, Play, ExternalLink, GitCompare, CheckSquare, Square, Loader2, Layers } from 'lucide-react'
 
 const MetricCard = ({ label, value, unit = '', color = 'text-white' }) => (
   <div className="card text-center">
@@ -70,6 +70,12 @@ export default function ArticleDetail() {
   const { data: article, isLoading, refetch } = useQuery({
     queryKey: ['article', id],
     queryFn: () => getArticle(id),
+  })
+
+  const { data: articleCluster } = useQuery({
+    queryKey: ['cluster-for-article', id],
+    queryFn: () => getClusterForArticle(id),
+    staleTime: 60000,
   })
 
   // Poll Celery task status while a task is running
@@ -151,6 +157,19 @@ export default function ArticleDetail() {
               ? <Link to={`/authors/${article.author_id}`} className="text-blue-400 hover:text-blue-300">{article.author_name}</Link>
               : article.author_name
             }
+          </span>
+        )}
+        {articleCluster && (
+          <span className="flex items-center gap-1">
+            ·
+            <Link
+              to="/clusters"
+              className="flex items-center gap-1 text-teal-400 hover:text-teal-300"
+              title={`Story cluster: ${articleCluster.topic_label}`}
+            >
+              <Layers size={12} />
+              <span className="truncate max-w-xs">{articleCluster.topic_label || 'Story cluster'}</span>
+            </Link>
           </span>
         )}
       </div>
