@@ -7,6 +7,28 @@ and each task gets a fresh event loop.
 """
 import asyncio
 from app.worker import celery_app
+from celery.signals import worker_process_init
+
+
+@worker_process_init.connect
+def _dispose_inherited_db_pool(**kwargs):
+    """
+    After Celery forks a new worker process, dispose any inherited async DB
+    engine connection pool. SQLAlchemy async engines hold asyncpg connections
+    with callbacks bound to the parent's event loop; those connections are
+    invalid in the forked child and cause "Future attached to a different loop"
+    errors. Disposing forces fresh connections in the new event loop.
+    """
+    try:
+        from app.pipelines.bias_analyzer import engine as bias_engine
+        bias_engine.sync_engine.dispose()
+    except Exception:
+        pass
+    try:
+        from app.core.database import engine as core_engine
+        core_engine.sync_engine.dispose()
+    except Exception:
+        pass
 
 
 @celery_app.task(
@@ -22,7 +44,10 @@ def analyze_article_task(self, article_id: str, analysis_type: str = "full"):
     Retries up to 2 times on failure (30s delay).
     """
     try:
-        from app.pipelines.bias_analyzer import analyze_article_bias
+        from app.pipelines.bias_analyzer import engine, analyze_article_bias
+        # Dispose connection pool so the next asyncio.run() gets fresh connections
+        # bound to its own event loop (avoids "Future attached to different loop" errors)
+        engine.sync_engine.dispose()
         asyncio.run(analyze_article_bias(article_id, analysis_type))
         return {"status": "done", "article_id": article_id}
     except Exception as exc:
