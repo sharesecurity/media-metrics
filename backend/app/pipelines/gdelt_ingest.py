@@ -51,13 +51,28 @@ def extract_domain(url: str) -> Optional[str]:
     match = re.search(r'https?://(?:www\.)?([^/]+)', url)
     return match.group(1) if match else None
 
+_ORG_KEYWORDS = frozenset([
+    "news", "press", "wire", "staff", "report", "reporter", "reporters",
+    "network", "media", "times", "post", "journal", "tribune", "bureau",
+    "service", "agency", "reuters", "bloomberg", "editors", "editorial",
+    "desk", "correspondent", "correspondents", "team",
+])
+
+
+def _is_org_byline(name: str) -> bool:
+    """Return True if the name looks like an organisation rather than a person."""
+    lower_words = set(name.lower().split())
+    return bool(lower_words & _ORG_KEYWORDS)
+
+
 def split_author_names(raw: str) -> list:
     """
     Split a raw author string that may contain multiple names into a list
-    of individual clean name strings.
+    of individual clean person-name strings.
 
     Handles separators: comma, ' and ', ' & ', semicolon.
-    Each part must look like a real person name (≥ 2 words, reasonable length).
+    Each part must look like a real person name (≥ 2 words, ≤ 5 words,
+    starts with capital letter, not an organisation byline).
     Falls back to [raw] if nothing valid is found after splitting.
 
     Examples:
@@ -65,12 +80,18 @@ def split_author_names(raw: str) -> list:
         "John Smith and Jane Doe"     → ["John Smith", "Jane Doe"]
         "Alice Johnson & Bob Lee"     → ["Alice Johnson", "Bob Lee"]
         "Single Author"               → ["Single Author"]
+        "Associated Press"            → []   (org keyword)
+        "Breitbart News"              → []   (org keyword)
     """
     if not raw or not raw.strip():
         return []
 
     # Normalise whitespace first
     raw = " ".join(raw.split())
+
+    # Reject whole string if it looks like an organisation byline
+    if _is_org_byline(raw):
+        return []
 
     # Split on typical multi-author separators
     parts = re.split(r',\s+|\s+and\s+|\s*&\s*|\s*;\s*', raw)
@@ -79,6 +100,9 @@ def split_author_names(raw: str) -> list:
     for part in parts:
         part = part.strip()
         if not part:
+            continue
+        # Skip organisation-like parts
+        if _is_org_byline(part):
             continue
         words = part.split()
         # Need at least 2 words to look like a real "First Last" name and
@@ -93,7 +117,7 @@ def split_author_names(raw: str) -> list:
             continue
         valid.append(part)
 
-    return valid if valid else ([raw.strip()] if raw.strip() else [])
+    return valid if valid else ([raw.strip()] if raw.strip() and not _is_org_byline(raw) else [])
 
 
 def extract_author_from_text(text: str) -> Optional[str]:
