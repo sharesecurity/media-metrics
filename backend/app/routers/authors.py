@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, delete, func
 from app.database import get_db
 from app.models import Author, Article, AnalysisResult, Source
 from app.services.demographics import infer_demographics, infer_ethnicity_with_confidence
 from typing import Optional
+import uuid as _uuid
 
 router = APIRouter()
 
@@ -229,3 +230,68 @@ async def get_author(author_id: str, db: AsyncSession = Depends(get_db)):
         "source_name": source_name,
         "article_count": article_count,
     }
+
+
+@router.post("/fix-compound")
+async def fix_compound_authors(background_tasks: BackgroundTasks):
+    """
+    Backfill: find Author records whose name contains multiple people
+    (e.g. "Evan Halper, Rachel Siegel") and split them into individual
+    Author records.  Articles that pointed to the compound Author are
+    re-assigned to the first individual.  The compound record is deleted.
+    """
+    background_tasks.add_task(_do_fix_compound)
+    return {"status": "started"}
+
+
+async def _do_fix_compound():
+    """
+    Background task — split compound Author records into individual ones.
+    """
+    import re
+    from app.core.database import AsyncSessionLocal
+    from app.pipelines.gdelt_ingest import split_author_names, get_or_create_author
+
+    fixed = 0
+    skipped = 0
+
+    async with AsyncSessionLocal() as db:
+        # Find authors whose name looks compound (contains separator patterns)
+        result = await db.execute(select(Author))
+        all_authors = result.scalars().all()
+
+        for author in all_authors:
+            if not author.name:
+                continue
+            names = split_author_names(author.name)
+            # Only act when there are 2+ valid individual names
+            if len(names) < 2:
+                skipped += 1
+                continue
+
+            print(f"[fix-compound] Splitting '{author.name}' → {names}")
+
+            # Create / fetch individual Author records
+            individual_ids = []
+            for name in names:
+                aid = await get_or_create_author(db, name, author.source_id)
+                individual_ids.append(aid)
+
+            first_id = individual_ids[0]
+
+            # Re-point all articles that used the compound author to the first individual
+            await db.execute(
+                update(Article)
+                .where(Article.author_id == author.id)
+                .values(author_id=first_id)
+            )
+
+            # Delete the compound Author record (no articles point to it now)
+            await db.execute(
+                delete(Author).where(Author.id == author.id)
+            )
+
+            await db.commit()
+            fixed += 1
+
+    print(f"[fix-compound] Done — split {fixed} compound authors, skipped {skipped} clean ones")

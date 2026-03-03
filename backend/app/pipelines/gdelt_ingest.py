@@ -51,6 +51,51 @@ def extract_domain(url: str) -> Optional[str]:
     match = re.search(r'https?://(?:www\.)?([^/]+)', url)
     return match.group(1) if match else None
 
+def split_author_names(raw: str) -> list:
+    """
+    Split a raw author string that may contain multiple names into a list
+    of individual clean name strings.
+
+    Handles separators: comma, ' and ', ' & ', semicolon.
+    Each part must look like a real person name (≥ 2 words, reasonable length).
+    Falls back to [raw] if nothing valid is found after splitting.
+
+    Examples:
+        "Evan Halper, Rachel Siegel"  → ["Evan Halper", "Rachel Siegel"]
+        "John Smith and Jane Doe"     → ["John Smith", "Jane Doe"]
+        "Alice Johnson & Bob Lee"     → ["Alice Johnson", "Bob Lee"]
+        "Single Author"               → ["Single Author"]
+    """
+    if not raw or not raw.strip():
+        return []
+
+    # Normalise whitespace first
+    raw = " ".join(raw.split())
+
+    # Split on typical multi-author separators
+    parts = re.split(r',\s+|\s+and\s+|\s*&\s*|\s*;\s*', raw)
+
+    valid = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        words = part.split()
+        # Need at least 2 words to look like a real "First Last" name and
+        # avoid treating honorific suffixes ("Jr.", "III") as standalone names.
+        if len(words) < 2:
+            continue
+        # Sanity: not excessively long (titles / org names slip through otherwise)
+        if len(words) > 5:
+            continue
+        # At least the first word should start with a capital letter
+        if not words[0][0].isupper():
+            continue
+        valid.append(part)
+
+    return valid if valid else ([raw.strip()] if raw.strip() else [])
+
+
 def extract_author_from_text(text: str) -> Optional[str]:
     """Extract author name from article text using common byline patterns."""
     if not text:
@@ -651,10 +696,13 @@ async def ingest_embedded_sample(limit: int = 50):
                 pub_date = datetime.strptime(sample["published_at"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
                 # Author: use explicit key if provided, otherwise try to extract from text
-                author_name = sample.get("author") or extract_author_from_text(sample.get("text", ""))
+                raw_author = sample.get("author") or extract_author_from_text(sample.get("text", ""))
                 author_id = None
-                if author_name:
-                    author_id = await get_or_create_author(db, author_name, source_id)
+                if raw_author:
+                    for i, name in enumerate(split_author_names(raw_author)):
+                        aid = await get_or_create_author(db, name, source_id)
+                        if i == 0:
+                            author_id = aid  # primary author on the article
 
                 text = sample.get("text", "")
                 article = Article(

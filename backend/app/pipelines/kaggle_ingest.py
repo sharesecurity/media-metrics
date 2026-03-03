@@ -132,6 +132,7 @@ async def ingest_kaggle_dataset(
     from app.models import Article, Source, Author
     from app.services.demographics import infer_demographics
     from app.services.minio_service import store_article_text
+    from app.pipelines.gdelt_ingest import split_author_names, get_or_create_author as _get_or_create_author
     from sqlalchemy import select
 
     csv_files = _csv_files(version)
@@ -247,30 +248,16 @@ async def ingest_kaggle_dataset(
 
                     source_id = source_map[source_name]
 
-                    # --- Resolve or create Author (only for v1/v2) ---
+                    # --- Resolve or create Author(s) (only for v1/v2) ---
+                    # Split compound names like "Alice Smith, Bob Jones" into
+                    # individual Author records; use the first as primary FK.
                     author_id = None
                     if author and len(author) > 2:
-                        auth_result = await db.execute(
-                            select(Author).where(
-                                Author.name == author,
-                                Author.source_id == source_id,
-                            )
-                        )
-                        existing_author = auth_result.scalar_one_or_none()
-                        if existing_author:
-                            author_id = existing_author.id
-                        else:
-                            demo = infer_demographics(author)
-                            new_author = Author(
-                                id=uuid.uuid4(),
-                                name=author,
-                                source_id=source_id,
-                                gender=demo["gender"],
-                                ethnicity=demo["ethnicity"],
-                            )
-                            db.add(new_author)
-                            await db.flush()
-                            author_id = new_author.id
+                        names = split_author_names(author)
+                        for i, name in enumerate(names):
+                            aid = await _get_or_create_author(db, name, source_id)
+                            if i == 0:
+                                author_id = aid
 
                     # --- Parse date ---
                     published_at = _parse_date(raw_date)
