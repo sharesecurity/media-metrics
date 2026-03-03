@@ -69,7 +69,7 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-gray-800 text-xs text-gray-600 text-center">
-          v0.5.0 · deepseek-r1:8b
+          v0.6.0 · deepseek-r1:8b
         </div>
       </aside>
 

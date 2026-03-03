@@ -268,7 +268,13 @@ export default function Dashboard() {
                         ? <span className="text-yellow-300">{queueStats.active} running</span>
                         : <span className="text-gray-400">idle</span>}
                       {(queueStats.redis_backlog ?? 0) > 0
-                        ? <span className="text-orange-400 ml-1">· {queueStats.redis_backlog} in queue</span>
+                        ? (() => {
+                            const backlog = queueStats.redis_backlog
+                            const etaSec = backlog * 50  // ~50s per article
+                            const etaHrs = (etaSec / 3600).toFixed(1)
+                            const etaLabel = etaSec < 3600 ? `${Math.ceil(etaSec / 60)}m` : `~${etaHrs}h`
+                            return <span className="text-orange-400 ml-1">· {backlog.toLocaleString()} queued ({etaLabel} est.)</span>
+                          })()
                         : queueStats.queued > 0
                           ? <span className="text-gray-400 ml-1">· {queueStats.queued} queued</span>
                           : null}
