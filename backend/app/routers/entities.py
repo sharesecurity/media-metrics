@@ -237,13 +237,38 @@ async def list_people(
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Person).order_by(Person.full_name).limit(limit).offset(offset)
+    # Enrich list with article count + avg political lean via author bridge
+    q = (
+        select(
+            Person,
+            func.count(Article.id).label("article_count"),
+            func.avg(AnalysisResult.political_lean).label("avg_lean"),
+        )
+        .outerjoin(Author, Author.person_id == Person.id)
+        .outerjoin(Article, Article.author_id == Author.id)
+        .outerjoin(AnalysisResult, AnalysisResult.article_id == Article.id)
+        .group_by(Person.id)
+        .order_by(Person.full_name)
+        .limit(limit)
+        .offset(offset)
     )
-    people = result.scalars().all()
+    result = await db.execute(q)
+    rows = result.all()
+
     total_result = await db.execute(select(func.count(Person.id)))
     total = total_result.scalar() or 0
-    return {"total": total, "people": [_person_dict(p) for p in people]}
+
+    return {
+        "total": total,
+        "people": [
+            {
+                **_person_dict(r.Person),
+                "article_count": r.article_count or 0,
+                "avg_lean": round(float(r.avg_lean), 3) if r.avg_lean is not None else None,
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/people/{person_id}")

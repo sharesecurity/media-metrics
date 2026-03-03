@@ -67,7 +67,7 @@ export default function People() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800">
-              {['Name', 'Gender', 'Ethnicity', 'Known Bylines'].map(h => (
+              {['Name', 'Gender', 'Ethnicity', 'Articles', 'Avg Lean'].map(h => (
                 <th key={h} className="text-left text-xs text-gray-500 uppercase tracking-wider px-4 py-3 font-medium">
                   {h}
                 </th>
@@ -76,29 +76,42 @@ export default function People() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={4} className="text-center py-8 text-gray-600">Loading...</td></tr>
+              <tr><td colSpan={5} className="text-center py-8 text-gray-600">Loading...</td></tr>
             )}
             {!isLoading && filtered.length === 0 && (
-              <tr><td colSpan={4} className="text-center py-8 text-gray-600">No people found.</td></tr>
+              <tr><td colSpan={5} className="text-center py-8 text-gray-600">No people found.</td></tr>
             )}
-            {filtered.map(p => (
-              <tr key={p.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
-                <td className="px-4 py-3">
-                  <Link to={`/people/${p.id}`} className="text-white hover:text-blue-400 font-medium">
-                    {p.full_name}
-                  </Link>
-                </td>
-                <td className="px-4 py-3">
-                  <DemoBadge value={p.gender} colorMap={GENDER_COLORS} />
-                </td>
-                <td className="px-4 py-3">
-                  <DemoBadge value={p.ethnicity} colorMap={ETHNICITY_COLORS} />
-                </td>
-                <td className="px-4 py-3 text-gray-500 text-xs">
-                  {p.byline_variants?.slice(0, 2).join(', ') || '—'}
-                </td>
-              </tr>
-            ))}
+            {filtered.map(p => {
+              const lean = p.avg_lean
+              const leanColor = lean == null ? 'text-gray-600'
+                : lean < -0.3 ? 'text-blue-400'
+                : lean > 0.3 ? 'text-red-400'
+                : 'text-gray-300'
+              return (
+                <tr key={p.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                  <td className="px-4 py-3">
+                    <Link to={`/people/${p.id}`} className="text-white hover:text-blue-400 font-medium">
+                      {p.full_name}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    <DemoBadge value={p.gender} colorMap={GENDER_COLORS} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <DemoBadge value={p.ethnicity} colorMap={ETHNICITY_COLORS} />
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-sm">
+                    {p.article_count > 0 ? p.article_count : <span className="text-gray-600">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    {lean != null
+                      ? <span className={`text-sm font-mono ${leanColor}`}>{lean > 0 ? '+' : ''}{lean.toFixed(2)}</span>
+                      : <span className="text-gray-600 text-sm">—</span>
+                    }
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
