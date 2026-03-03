@@ -88,6 +88,11 @@ async def _seed_entities(db: AsyncSession) -> dict:
     authors = authors_result.scalars().all()
 
     for author in authors:
+        # Skip org-byline author records (shouldn't exist after fix, but guard anyway)
+        from app.pipelines.gdelt_ingest import _is_org_byline
+        if not author.name or _is_org_byline(author.name):
+            continue
+
         # Check if person already exists by full_name
         existing = await db.execute(
             select(Person).where(Person.full_name == author.name)
