@@ -56,6 +56,8 @@ _ORG_KEYWORDS = frozenset([
     "network", "media", "times", "post", "journal", "tribune", "bureau",
     "service", "agency", "reuters", "bloomberg", "editors", "editorial",
     "desk", "correspondent", "correspondents", "team",
+    # Domain/URL fragments that appear in publisher bylines (e.g. "Dailymail com")
+    "com", "co", "org", "net", "uk", "dailymail", "mailonline",
 ])
 
 
