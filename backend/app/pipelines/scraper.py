@@ -9,9 +9,10 @@ import httpx
 import trafilatura
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import select, update
+from sqlalchemy import select, update, case, func, cast, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from app.config import settings
-from app.models import Article
+from app.models import Article, Source
 
 engine = create_async_engine(settings.database_url)
 AsyncSession_ = async_sessionmaker(engine, expire_on_commit=False)
@@ -34,6 +35,15 @@ HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
+}
+
+# HTTP status codes that indicate a permanent failure — don't retry
+PERMANENT_FAILURE_CODES = {400, 401, 403, 404, 410, 451}
+
+# Source domains with better scraping success rates — prioritized first
+PRIORITY_DOMAINS = {
+    "theguardian.com", "dailymail.co.uk", "bbc.com", "bbc.co.uk",
+    "cnbc.com", "breitbart.com", "huffpost.com", "npr.org",
 }
 
 
@@ -62,20 +72,26 @@ def extract_text(html: bytes, url: str) -> str | None:
     return text
 
 
-async def scrape_article(client: httpx.AsyncClient, url: str) -> tuple[str | None, str | None]:
-    """Fetch a URL and extract (text, title)."""
+async def scrape_article(
+    client: httpx.AsyncClient, url: str
+) -> tuple[str | None, str | None, int | None]:
+    """
+    Fetch a URL and extract (text, title, http_status).
+    http_status is None on network errors, otherwise the HTTP status code.
+    """
     try:
         resp = await client.get(url, follow_redirects=True, timeout=20)
         if resp.status_code != 200:
             print(f"[Scraper] HTTP {resp.status_code} for {url}")
-            return None, None
-        return extract_text_and_meta(resp.content, url)
+            return None, None, resp.status_code
+        text, title = extract_text_and_meta(resp.content, url)
+        return text, title, 200
     except httpx.TimeoutException:
         print(f"[Scraper] Timeout: {url}")
-        return None, None
+        return None, None, None
     except Exception as e:
         print(f"[Scraper] Error fetching {url}: {e}")
-        return None, None
+        return None, None, None
 
 
 async def scrape_missing_articles(
@@ -85,22 +101,35 @@ async def scrape_missing_articles(
 ) -> dict:
     """
     Find all articles with no raw_text and scrape them.
+    - Excludes articles already marked scrape_failed or with null URLs
+    - Prioritizes sources known to be more accessible
+    - Marks permanent HTTP failures (403, 404, etc.) as scrape_failed
     Returns a summary of results.
     """
     global SCRAPER_STATUS
     print(f"[Scraper] Starting — limit={limit}, concurrency={concurrency}")
 
-    # Get articles needing text: must have a URL, not yet failed on a prior run
     async with AsyncSession_() as db:
+        # Priority ordering: prefer known-good domains first
+        priority = case(
+            *[
+                (Article.url.ilike(f"%{domain}%"), 1)
+                for domain in PRIORITY_DOMAINS
+            ],
+            else_=2,
+        )
         result = await db.execute(
             select(Article.id, Article.url, Article.title)
             .where(Article.raw_text.is_(None))
             .where(Article.minio_key.is_(None))
-            .where(Article.url.isnot(None))
+            .where(Article.url.is_not(None))
             .where(
-                (Article.extra.is_(None)) |
-                (Article.extra["scrape_failed"].as_string() != "true")
+                ~cast(
+                    func.coalesce(Article.extra["scrape_failed"].astext, "false"),
+                    Boolean,
+                )
             )
+            .order_by(priority, Article.published_at.desc().nulls_last())
             .limit(limit)
         )
         articles_to_scrape = result.all()
@@ -129,7 +158,7 @@ async def scrape_missing_articles(
     async def scrape_one(article_id, url: str, current_title: str = ""):
         nonlocal scraped, failed
         async with semaphore:
-            text, scraped_title = await scrape_article(client, url)
+            text, scraped_title, http_status = await scrape_article(client, url)
             if text and len(text) >= min_text_length:
                 async with AsyncSession_() as db:
                     values = {"raw_text": text[:80000], "word_count": len(text.split())}
@@ -158,14 +187,19 @@ async def scrape_missing_articles(
             else:
                 failed += 1
                 SCRAPER_STATUS["failed"] = failed
-                # Mark as scrape-failed so future runs skip this article
-                async with AsyncSession_() as db:
-                    await db.execute(
-                        update(Article)
-                        .where(Article.id == article_id)
-                        .values(extra={"scrape_failed": True})
-                    )
-                    await db.commit()
+                # Mark permanent HTTP failures so they're not retried
+                if http_status in PERMANENT_FAILURE_CODES:
+                    async with AsyncSession_() as db:
+                        await db.execute(
+                            update(Article)
+                            .where(Article.id == article_id)
+                            .values(extra=func.jsonb_set(
+                                func.coalesce(Article.extra, cast({}, JSONB)),
+                                "{scrape_failed}",
+                                cast("true", JSONB),
+                            ))
+                        )
+                        await db.commit()
 
     async with httpx.AsyncClient(headers=HEADERS, timeout=25) as client:
         tasks = [scrape_one(art_id, url, title or "") for art_id, url, title in articles_to_scrape]

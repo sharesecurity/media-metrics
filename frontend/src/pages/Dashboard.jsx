@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest } from '../utils/api'
-import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity, HardDrive } from 'lucide-react'
+import { getArticleStats, getSources, startIngest, runAllAnalysis, getAuthors, getIngestStatus, getQueueStats, getKaggleStatus, startKaggleIngest, getProvenanceSummary } from '../utils/api'
+import { Play, Database, FileText, Users, RefreshCw, Globe, Cpu, Activity, HardDrive, GitBranch } from 'lucide-react'
 import { useState } from 'react'
 
 const BiasGauge = ({ value }) => {
@@ -60,6 +60,12 @@ export default function Dashboard() {
     queryKey: ['kaggle-status'],
     queryFn: getKaggleStatus,
     staleTime: 30000,
+  })
+
+  const { data: provenanceSummary = [] } = useQuery({
+    queryKey: ['provenance-summary'],
+    queryFn: getProvenanceSummary,
+    staleTime: 60000,
   })
 
   const handleKaggleIngest = async (version = 'headlines', limit = 5000) => {
@@ -413,6 +419,33 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      {/* Wire Service Provenance Summary */}
+      {provenanceSummary.length > 0 && (
+        <div className="card">
+          <div className="flex items-center gap-2 mb-4">
+            <GitBranch size={16} className="text-teal-400" />
+            <h2 className="font-semibold text-white">Wire Service Attribution</h2>
+            <span className="text-xs text-gray-500 ml-1">— articles identified as wire pickups</span>
+          </div>
+          <div className="grid grid-cols-5 gap-3">
+            {provenanceSummary.map(item => (
+              <div key={item.org_slug} className="bg-gray-800 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-white">{item.article_count}</p>
+                <p className="text-sm text-teal-300 font-medium mt-1">{item.org_name}</p>
+                {item.avg_confidence && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {(item.avg_confidence * 100).toFixed(0)}% conf.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-600 mt-3">
+            Detected via regex patterns (explicit attribution) and LLM inference (fallback). More articles will be attributed as analysis runs.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

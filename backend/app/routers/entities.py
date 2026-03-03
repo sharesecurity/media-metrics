@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.database import get_db
 from app.models import (
     Source, Author, Organization, Person,
-    Article, AnalysisResult, PersonOrganization,
+    Article, AnalysisResult, PersonOrganization, ArticleProvenance,
 )
 import re
 import uuid
@@ -313,12 +313,12 @@ async def provenance_summary(db: AsyncSession = Depends(get_db)):
         select(
             Organization.name,
             Organization.slug,
-            func.count(text("article_provenance.id")).label("article_count"),
-            func.avg(text("article_provenance.confidence")).label("avg_confidence"),
+            func.count(ArticleProvenance.id).label("article_count"),
+            func.avg(ArticleProvenance.confidence).label("avg_confidence"),
         )
-        .join(text("article_provenance"), text("article_provenance.wire_service_id = organizations.id"))
+        .join(ArticleProvenance, ArticleProvenance.wire_service_id == Organization.id)
         .group_by(Organization.id, Organization.name, Organization.slug)
-        .order_by(func.count(text("article_provenance.id")).desc())
+        .order_by(func.count(ArticleProvenance.id).desc())
     )
     rows = result.all()
     return [
