@@ -90,6 +90,111 @@ CREATE INDEX IF NOT EXISTS idx_analysis_article ON analysis_results(article_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_type ON analysis_results(analysis_type);
 CREATE INDEX IF NOT EXISTS idx_articles_title_trgm ON articles USING gin(title gin_trgm_ops);
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Entity Graph Tables (Phase 1 — Story Provenance & Entity Relationships)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Geographic entities (cities, regions)
+CREATE TABLE IF NOT EXISTS locations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    city TEXT,
+    state TEXT,
+    country TEXT NOT NULL DEFAULT 'US',
+    lat FLOAT,
+    lng FLOAT,
+    display_name TEXT,  -- "New York, NY, US"
+    meta JSONB
+);
+
+-- Organizations: news outlets, wire services, parent companies, investors
+-- Richer replacement for `sources` table; sources.org_id → FK bridge added below
+CREATE TABLE IF NOT EXISTS organizations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL UNIQUE,
+    slug TEXT UNIQUE,
+    org_type TEXT,           -- 'publisher', 'wire_service', 'parent_company', 'investor'
+    domain TEXT,
+    location_id UUID REFERENCES locations(id),
+    founding_year INTEGER,
+    dissolved_year INTEGER,  -- null = still active
+    political_lean FLOAT,    -- -1.0 (far left) to +1.0 (far right)
+    country TEXT DEFAULT 'US',
+    parent_org_id UUID REFERENCES organizations(id),  -- Fox Corp owns Fox News
+    wikipedia_url TEXT,
+    wikidata_id TEXT,
+    meta JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- People: journalists, editors, executives, investors
+-- Richer replacement for `authors` table; authors.person_id → FK bridge added below
+CREATE TABLE IF NOT EXISTS people (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    full_name TEXT NOT NULL,
+    slug TEXT UNIQUE,
+    gender TEXT,
+    ethnicity TEXT,
+    birth_year INTEGER,
+    location_id UUID REFERENCES locations(id),
+    byline_variants TEXT[],  -- "By J. Smith", "John Smith", etc.
+    wikipedia_url TEXT,
+    wikidata_id TEXT,
+    meta JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Employment / affiliation history (temporal) — core of the journalist career graph
+CREATE TABLE IF NOT EXISTS person_organization (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    person_id UUID NOT NULL REFERENCES people(id),
+    org_id UUID NOT NULL REFERENCES organizations(id),
+    role TEXT NOT NULL,      -- 'reporter', 'editor', 'senior_editor', 'bureau_chief', 'columnist'
+    beat TEXT,               -- 'politics', 'tech', 'foreign', etc.
+    location_id UUID REFERENCES locations(id),
+    valid_from DATE,
+    valid_to DATE,           -- null = current position
+    confidence FLOAT DEFAULT 1.0,
+    source TEXT,             -- 'byline', 'linkedin', 'manual', 'inferred'
+    meta JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_person_org_person ON person_organization(person_id);
+CREATE INDEX IF NOT EXISTS idx_person_org_org ON person_organization(org_id);
+CREATE INDEX IF NOT EXISTS idx_person_org_valid ON person_organization(valid_from, valid_to);
+
+-- Story attribution chain — the primary new table for bias-source tracking
+CREATE TABLE IF NOT EXISTS article_provenance (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    article_id UUID NOT NULL REFERENCES articles(id),
+    provenance_type TEXT NOT NULL,  -- 'original', 'wire_pickup', 'syndicated', 'press_release'
+    wire_service_id UUID REFERENCES organizations(id),
+    source_article_id UUID REFERENCES articles(id),
+    confidence FLOAT NOT NULL,
+    detection_method TEXT,          -- 'explicit_attribution', 'embedding_similarity', 'llm_inference'
+    attribution_text TEXT,          -- raw text that signaled this: "(AP)", "According to Reuters..."
+    similarity_score FLOAT,
+    detected_at TIMESTAMPTZ DEFAULT NOW(),
+    meta JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_provenance_article ON article_provenance(article_id);
+CREATE INDEX IF NOT EXISTS idx_provenance_wire ON article_provenance(wire_service_id);
+
+-- Multi-author support (articles can have more than one author)
+CREATE TABLE IF NOT EXISTS article_authors (
+    article_id UUID NOT NULL REFERENCES articles(id),
+    person_id UUID NOT NULL REFERENCES people(id),
+    author_order INTEGER DEFAULT 1,
+    PRIMARY KEY (article_id, person_id)
+);
+
+-- Bridge FK columns: link existing tables to new entity tables
+-- These are safe to add to an existing database (idempotent via IF NOT EXISTS guard below)
+ALTER TABLE authors ADD COLUMN IF NOT EXISTS person_id UUID REFERENCES people(id);
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+
 -- Seed some news sources
 INSERT INTO sources (name, domain, country, political_lean) VALUES
     ('The New York Times', 'nytimes.com', 'US', -0.3),

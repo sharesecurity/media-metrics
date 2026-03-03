@@ -14,7 +14,7 @@ import textstat
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import select
 from app.config import settings
-from app.models import Article, AnalysisResult, Source
+from app.models import Article, AnalysisResult, Source, ArticleProvenance, Organization
 
 engine = create_async_engine(
     settings.database_url,
@@ -48,6 +48,54 @@ Respond ONLY with valid JSON (no explanation outside JSON):
 
 Article:
 """
+
+# Wire service attribution patterns: (pattern, confidence, org_slug)
+# Ordered from highest to lowest confidence signals.
+_WIRE_PATTERNS = [
+    # Dateline abbreviations — very high confidence
+    (r'\(AP\)',        0.95, "ap"),
+    (r'\(Reuters\)',   0.95, "reuters"),
+    (r'\(AFP\)',       0.95, "afp"),
+    (r'\(Bloomberg\)', 0.95, "bloomberg"),
+    (r'\(UPI\)',       0.95, "upi"),
+    # Full name in first 500 chars — high confidence
+    (r'The Associated Press',      0.90, "ap"),
+    (r'By Reuters Staff',          0.90, "reuters"),
+    (r'By The Associated Press',   0.90, "ap"),
+    (r'Agence France-Presse',      0.90, "afp"),
+    # Reuters "Reporting by X; Editing by Y" footer pattern
+    (r'Reporting by .{0,80};\s*[Ee]diting by', 0.90, "reuters"),
+    # Softer attribution phrases
+    (r'according to (?:the )?Associated Press', 0.75, "ap"),
+    (r'according to Reuters',                   0.75, "reuters"),
+    (r'via (?:the )?Associated Press',          0.75, "ap"),
+    (r'via Reuters',                            0.75, "reuters"),
+    (r'originally published by (?:the )?AP',   0.75, "ap"),
+]
+
+def detect_wire_attribution(text: str) -> list[dict]:
+    """
+    Scan article text for wire service attribution patterns.
+    Returns a list of matches: [{wire_slug, confidence, attribution_text, match_start}].
+    Checks full text for datelines; restricts softer phrases to first 1000 chars.
+    """
+    matches = []
+    seen_slugs: set[str] = set()
+    first_1000 = text[:1000]
+
+    for pattern, confidence, slug in _WIRE_PATTERNS:
+        # Softer phrases (confidence < 0.90) only checked in opening text
+        search_text = first_1000 if confidence < 0.90 else text
+        m = re.search(pattern, search_text, re.IGNORECASE)
+        if m and slug not in seen_slugs:
+            matches.append({
+                "wire_slug": slug,
+                "confidence": confidence,
+                "attribution_text": m.group(0),
+            })
+            seen_slugs.add(slug)
+    return matches
+
 
 def parse_json_from_llm(text: str) -> dict:
     """Extract JSON from LLM output, handling <think> tags from deepseek-r1."""
@@ -191,7 +239,37 @@ async def analyze_article_bias(article_id: str, analysis_type: str = "full"):
             await db.rollback()
             return  # If we can't save analysis, skip Qdrant too
 
-        # 5. Generate embedding and index in Qdrant
+        # 5. Provenance detection — regex scan for wire service attribution
+        wire_hits = detect_wire_attribution(text)
+        if wire_hits:
+            try:
+                # Look up org IDs for detected wire services (cached per session)
+                org_result = await db.execute(
+                    select(Organization.id, Organization.slug)
+                    .where(Organization.slug.in_([h["wire_slug"] for h in wire_hits]))
+                )
+                slug_to_id = {row.slug: row.id for row in org_result}
+
+                for hit in wire_hits:
+                    org_id = slug_to_id.get(hit["wire_slug"])
+                    prov = ArticleProvenance(
+                        article_id=uuid.UUID(article_id),
+                        provenance_type="wire_pickup",
+                        wire_service_id=org_id,
+                        confidence=hit["confidence"],
+                        detection_method="explicit_attribution",
+                        attribution_text=hit["attribution_text"],
+                        detected_at=datetime.now(timezone.utc),
+                    )
+                    db.add(prov)
+                await db.commit()
+                slugs = [h["wire_slug"] for h in wire_hits]
+                print(f"[Bias] ✓ Provenance detected: {slugs} for {article_id}")
+            except Exception as e:
+                print(f"[Bias] Provenance save error: {e}")
+                await db.rollback()
+
+        # 6. Generate embedding and index in Qdrant
         embed_text = f"{article.title}\n\n{text[:2000]}"
         embedding = await _generate_embedding(embed_text)
         if embedding:
