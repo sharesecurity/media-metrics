@@ -156,9 +156,37 @@ async def get_cluster(cluster_id: str, db: AsyncSession = Depends(get_db)):
                 "similarity_score": r.similarity_score,
             }
 
+    articles = list(seen.values())
+
+    # Compute per-source breakdown
+    from collections import defaultdict
+    src_groups: dict[str, list] = defaultdict(list)
+    for a in articles:
+        src_groups[a["source_name"] or "Unknown"].append(a)
+
+    per_source = []
+    for src_name, arts in sorted(src_groups.items()):
+        leans = [a["political_lean"] for a in arts if a["political_lean"] is not None]
+        per_source.append({
+            "source_name": src_name,
+            "article_count": len(arts),
+            "analyzed_count": len(leans),
+            "avg_lean": round(sum(leans) / len(leans), 3) if leans else None,
+            "min_lean": round(min(leans), 3) if leans else None,
+            "max_lean": round(max(leans), 3) if leans else None,
+        })
+    # Sort by avg_lean (left to right)
+    per_source.sort(key=lambda x: (x["avg_lean"] is None, x["avg_lean"] or 0))
+
+    # Bias divergence: spread between most-left and most-right analyzed sources
+    analyzed_avgs = [s["avg_lean"] for s in per_source if s["avg_lean"] is not None]
+    bias_divergence = round(max(analyzed_avgs) - min(analyzed_avgs), 3) if len(analyzed_avgs) >= 2 else None
+
     return {
         **_cluster_dict(cluster),
-        "articles": list(seen.values()),
+        "articles": articles,
+        "per_source": per_source,
+        "bias_divergence": bias_divergence,
     }
 
 

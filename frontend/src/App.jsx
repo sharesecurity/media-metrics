@@ -17,6 +17,7 @@ import SourceDetail from './pages/SourceDetail'
 import People from './pages/People'
 import PersonDetail from './pages/PersonDetail'
 import StoryClusters from './pages/StoryClusters'
+import ClusterDetail from './pages/ClusterDetail'
 import SettingsPage from './pages/Settings'
 
 const NAV = [
@@ -82,6 +83,7 @@ export default function App() {
           <Route path="/articles" element={<Articles />} />
           <Route path="/articles/:id" element={<ArticleDetail />} />
           <Route path="/clusters" element={<StoryClusters />} />
+          <Route path="/clusters/:id" element={<ClusterDetail />} />
           <Route path="/bias" element={<BiasAnalysis />} />
           <Route path="/trends" element={<Trends />} />
           <Route path="/search" element={<SemanticSearch />} />

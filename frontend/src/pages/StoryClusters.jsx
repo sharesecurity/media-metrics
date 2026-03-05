@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Layers, RefreshCw, ExternalLink, ChevronDown, ChevronRight, TrendingUp } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Layers, RefreshCw, ExternalLink, ChevronDown, ChevronRight, TrendingUp, ArrowRight } from 'lucide-react'
 import { getClusters, runClustering } from '../utils/api'
 
 const BiasChip = ({ value }) => {
@@ -39,6 +39,7 @@ const LeanBar = ({ members }) => {
 
 function ClusterRow({ cluster }) {
   const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
 
   const { data: detail, isLoading: detailLoading } = useQuery({
     queryKey: ['cluster', cluster.id],
@@ -85,11 +86,21 @@ function ClusterRow({ cluster }) {
             </div>
           )}
         </div>
-        <div className="shrink-0 text-right">
-          <p className={`text-sm font-mono font-medium ${leanColor}`}>
-            {cluster.avg_lean != null ? (cluster.avg_lean > 0 ? '+' : '') + cluster.avg_lean.toFixed(2) : '—'}
-          </p>
-          <p className="text-xs text-gray-600 mt-0.5">avg lean</p>
+        <div className="shrink-0 flex items-center gap-3">
+          <div className="text-right">
+            <p className={`text-sm font-mono font-medium ${leanColor}`}>
+              {cluster.avg_lean != null ? (cluster.avg_lean > 0 ? '+' : '') + cluster.avg_lean.toFixed(2) : '—'}
+            </p>
+            <p className="text-xs text-gray-600 mt-0.5">avg lean</p>
+          </div>
+          <Link
+            to={`/clusters/${cluster.id}`}
+            onClick={e => e.stopPropagation()}
+            className="text-gray-600 hover:text-teal-400 transition-colors p-1"
+            title="View cluster detail"
+          >
+            <ArrowRight size={14} />
+          </Link>
         </div>
       </button>
 
