@@ -2,7 +2,7 @@
 Models package — all ORM models exported from here.
 app/models/ (this package) takes priority over app/models.py.
 """
-from sqlalchemy import Column, String, Float, Integer, Text, ARRAY, Boolean, ForeignKey, DateTime, Date
+from sqlalchemy import Column, String, Float, Integer, Text, ARRAY, Boolean, ForeignKey, DateTime, Date, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -224,4 +224,4 @@ class AppSetting(Base):
     key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=False, default="")
     description = Column(Text, nullable=True)
-    updated_at = Column(TS, server_default="NOW()", onupdate="NOW()")
+    updated_at = Column(TS, server_default="NOW()", onupdate=func.now())
