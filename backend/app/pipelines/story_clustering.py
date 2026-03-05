@@ -230,6 +230,14 @@ async def run_clustering(
                 pub_dates_local = [a.published_at for a in articles_rows if a.published_at]
                 source_ids = {str(a.source_id) for a in articles_rows if a.source_id}
 
+                # Bias divergence: per-source avg leans → max - min spread
+                lean_by_source: dict[str, list[float]] = defaultdict(list)
+                for a in articles_rows:
+                    if str(a.id) in analysis_map and analysis_map[str(a.id)].political_lean is not None:
+                        lean_by_source[str(a.source_id)].append(analysis_map[str(a.id)].political_lean)
+                src_avgs = [sum(v) / len(v) for v in lean_by_source.values() if v]
+                bias_divergence_val = round(max(src_avgs) - min(src_avgs), 3) if len(src_avgs) >= 2 else None
+
                 # Pick representative = most-recently published
                 rep = max(articles_rows, key=lambda a: a.published_at or datetime.min.replace(tzinfo=timezone.utc))
 
@@ -243,6 +251,7 @@ async def run_clustering(
                     date_start=min(pub_dates_local) if pub_dates_local else None,
                     date_end=max(pub_dates_local) if pub_dates_local else None,
                     similarity_threshold=similarity_threshold,
+                    bias_divergence=bias_divergence_val,
                     created_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc),
                 )

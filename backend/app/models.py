@@ -188,6 +188,7 @@ class StoryCluster(Base):
     date_start = Column(TIMESTAMPTZ)
     date_end = Column(TIMESTAMPTZ)
     similarity_threshold = Column(Float, default=0.78)
+    bias_divergence = Column(Float)
     created_at = Column(TIMESTAMPTZ)
     updated_at = Column(TIMESTAMPTZ)
     members = relationship("StoryClusterArticle", back_populates="cluster", cascade="all, delete-orphan")

@@ -87,6 +87,18 @@ function ClusterRow({ cluster }) {
           )}
         </div>
         <div className="shrink-0 flex items-center gap-3">
+          {cluster.bias_divergence != null && (
+            <div className="text-right">
+              <p className={`text-sm font-mono font-medium ${
+                cluster.bias_divergence < 0.3 ? 'text-green-400' :
+                cluster.bias_divergence < 0.6 ? 'text-yellow-400' :
+                cluster.bias_divergence < 1.0 ? 'text-orange-400' : 'text-red-400'
+              }`}>
+                {cluster.bias_divergence.toFixed(2)}
+              </p>
+              <p className="text-xs text-gray-600 mt-0.5">divergence</p>
+            </div>
+          )}
           <div className="text-right">
             <p className={`text-sm font-mono font-medium ${leanColor}`}>
               {cluster.avg_lean != null ? (cluster.avg_lean > 0 ? '+' : '') + cluster.avg_lean.toFixed(2) : '—'}
@@ -139,11 +151,12 @@ function ClusterRow({ cluster }) {
 
 export default function StoryClusters() {
   const [minSources, setMinSources] = useState(1)
+  const [sortBy, setSortBy] = useState('article_count')
   const [running, setRunning] = useState(false)
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['clusters', minSources],
-    queryFn: () => getClusters({ min_sources: minSources }),
+    queryKey: ['clusters', minSources, sortBy],
+    queryFn: () => getClusters({ min_sources: minSources, sort_by: sortBy }),
     staleTime: 30000,
   })
 
@@ -169,6 +182,22 @@ export default function StoryClusters() {
           <span className="text-sm text-gray-500 ml-2">{total} clusters</span>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-gray-500">Sort:</span>
+            {[
+              { key: 'article_count', label: 'Articles' },
+              { key: 'bias_divergence', label: 'Divergence' },
+              { key: 'date', label: 'Recent' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(key)}
+                className={`px-2.5 py-1 rounded text-xs transition-colors ${sortBy === key ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-2 text-sm">
             <span className="text-gray-500">Min outlets:</span>
             {[1, 2, 3, 4].map(n => (

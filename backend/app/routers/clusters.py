@@ -48,12 +48,18 @@ async def list_clusters(
     limit: int = 50,
     offset: int = 0,
     min_sources: int = 1,
+    sort_by: str = "article_count",  # article_count | bias_divergence | date
     db: AsyncSession = Depends(get_db),
 ):
-    """List story clusters ordered by article count. Filter by min number of sources."""
+    """List story clusters. sort_by: article_count (default), bias_divergence, date."""
+    order_cols = {
+        "bias_divergence": desc(StoryCluster.bias_divergence).nullslast(),
+        "date": desc(StoryCluster.date_end).nullslast(),
+    }
+    primary_order = order_cols.get(sort_by, desc(StoryCluster.article_count))
     q = (
         select(StoryCluster)
-        .order_by(desc(StoryCluster.article_count), desc(StoryCluster.date_end))
+        .order_by(primary_order, desc(StoryCluster.date_end))
         .offset(offset)
         .limit(limit)
     )
@@ -202,5 +208,6 @@ def _cluster_dict(c: StoryCluster) -> dict:
         "date_start": c.date_start.isoformat() if c.date_start else None,
         "date_end": c.date_end.isoformat() if c.date_end else None,
         "similarity_threshold": c.similarity_threshold,
+        "bias_divergence": _f(c.bias_divergence),
         "representative_id": str(c.representative_id) if c.representative_id else None,
     }
