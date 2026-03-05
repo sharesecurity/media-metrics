@@ -1,13 +1,14 @@
 """
 Story Clusters API
 
-POST /run     — trigger clustering job
-GET  /        — list all clusters (sorted by article_count desc)
-GET  /{id}    — cluster detail with member articles
+POST /run      — trigger clustering job
+POST /relabel  — re-generate topic labels via LLM (background task)
+GET  /         — list all clusters (sorted by article_count desc)
+GET  /{id}     — cluster detail with member articles
 """
 from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, update
 from app.database import get_db
 from app.models import StoryCluster, StoryClusterArticle, Article, Source, AnalysisResult
 import uuid
@@ -41,6 +42,133 @@ async def _run_bg(similarity_threshold: float, days_window: int, min_cluster_siz
     from app.pipelines.story_clustering import run_clustering
     result = await run_clustering(similarity_threshold, days_window, min_cluster_size)
     print(f"[Clusters] Job complete: {result}")
+
+
+@router.post("/relabel")
+async def relabel_clusters(
+    background_tasks: BackgroundTasks,
+    min_sources: int = 2,
+    limit: int = 0,  # 0 = all
+):
+    """
+    Re-generate topic labels for clusters using Ollama LLM.
+    Collects up to 6 article titles from different outlets per cluster,
+    then asks the LLM to produce a concise 8-word topic summary.
+    Runs in the background — returns immediately.
+    """
+    background_tasks.add_task(_relabel_bg, min_sources, limit)
+    return {"status": "started", "min_sources": min_sources}
+
+
+async def _relabel_bg(min_sources: int, limit: int):
+    import httpx
+    import re as _re
+    import traceback
+    from app.core.database import AsyncSessionLocal
+    from app.config import settings
+
+    OLLAMA_URL = f"{settings.ollama_base_url}/api/generate"
+    MODEL = settings.ollama_model
+
+    async with AsyncSessionLocal() as db:
+        q = select(StoryCluster).order_by(desc(StoryCluster.article_count))
+        if min_sources > 1:
+            q = q.where(StoryCluster.source_count >= min_sources)
+        if limit:
+            q = q.limit(limit)
+        result = await db.execute(q)
+        clusters = result.scalars().all()
+
+    print(f"[Relabel] Starting relabel for {len(clusters)} clusters using {MODEL} (think=false, timeout=600s)")
+    print(f"[Relabel] Note: if analysis pipeline is active, each call may queue behind it")
+    updated = 0
+    failed = 0
+
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        for cluster in clusters:
+            try:
+                # Fetch up to 6 titles from different outlets
+                async with AsyncSessionLocal() as db:
+                    rows = await db.execute(
+                        select(Article.title, Source.name.label("source_name"))
+                        .join(StoryClusterArticle, StoryClusterArticle.article_id == Article.id)
+                        .outerjoin(Source, Article.source_id == Source.id)
+                        .where(StoryClusterArticle.cluster_id == cluster.id)
+                        .where(Article.title.isnot(None))
+                        .order_by(StoryClusterArticle.similarity_score.desc().nullslast())
+                        .limit(20)
+                    )
+                    rows = rows.all()
+
+                # Deduplicate by source — take one per outlet, up to 6
+                seen_sources: set[str] = set()
+                titles: list[str] = []
+                for row in rows:
+                    src = row.source_name or "Unknown"
+                    if src not in seen_sources and row.title:
+                        titles.append(row.title.strip())
+                        seen_sources.add(src)
+                    if len(titles) >= 6:
+                        break
+
+                if not titles:
+                    continue
+
+                bullet_list = "\n".join(f'- "{t}"' for t in titles)
+                prompt = (
+                    f"These news headlines all cover the same underlying story:\n{bullet_list}\n\n"
+                    "Write a single concise topic label (6–10 words) that accurately names the story. "
+                    "Reply with ONLY the label — no quotes, no punctuation at the end, no explanation."
+                )
+
+                resp = await client.post(
+                    OLLAMA_URL,
+                    json={
+                        "model": MODEL,
+                        "prompt": prompt,
+                        "stream": False,
+                        "think": False,        # skip reasoning chain — saves ~3 min/cluster
+                        "keep_alive": "30m",   # keep model warm across clusters
+                        "options": {"num_predict": 40},
+                    },
+                )
+                if resp.status_code != 200:
+                    failed += 1
+                    continue
+
+                raw = resp.json().get("response", "").strip()
+                # Strip <think>…</think> tags (deepseek-r1 reasoning traces)
+                raw = _re.sub(r"<think>.*?</think>", "", raw, flags=_re.DOTALL).strip()
+                # Take only the first line, strip quotes
+                label = raw.splitlines()[0].strip().strip('"').strip("'")
+                if not label or len(label) > 200:
+                    failed += 1
+                    continue
+
+                async with AsyncSessionLocal() as db:
+                    await db.execute(
+                        update(StoryCluster)
+                        .where(StoryCluster.id == cluster.id)
+                        .values(topic_label=label)
+                    )
+                    await db.commit()
+
+                updated += 1
+                print(f"[Relabel] {cluster.id}: {label[:70]}")
+
+            except Exception as exc:
+                print(f"[Relabel] Error on cluster {cluster.id}: {type(exc).__name__}: {exc}")
+                traceback.print_exc()
+                failed += 1
+
+    print(f"[Relabel] Done — {updated} updated, {failed} failed")
+
+
+@router.get("/relabel/status")
+async def relabel_status(db: AsyncSession = Depends(get_db)):
+    """Return counts of clusters that have vs haven't been relabeled yet."""
+    total = (await db.execute(select(func.count(StoryCluster.id)))).scalar() or 0
+    return {"total_clusters": total}
 
 
 @router.get("/")
